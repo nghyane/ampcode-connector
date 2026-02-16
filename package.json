@@ -1,0 +1,27 @@
+{
+  "name": "ampcode-connector",
+  "version": "0.1.0",
+  "description": "Proxy Amp CLI through local OAuth subscriptions (Claude Code, Codex, Gemini CLI, Antigravity)",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "ampcode-connector": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "setup": "bun run src/index.ts setup",
+    "login": "bun run src/index.ts login",
+    "test": "bun test",
+    "check": "biome check src/ tests/ && tsc --noEmit && bun test",
+    "format": "biome check --write src/ tests/"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.0",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
