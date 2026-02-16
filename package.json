@@ -4,7 +4,11 @@
   "description": "Proxy Amp CLI through local OAuth subscriptions (Claude Code, Codex, Gemini CLI, Antigravity)",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
+  "files": [
+    "src/**/*.ts",
+    "config.yaml",
+    "tsconfig.json"
+  ],
   "bin": {
     "ampcode-connector": "src/index.ts"
   },
