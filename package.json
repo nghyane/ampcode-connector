@@ -2,6 +2,20 @@
   "name": "ampcode-connector",
   "version": "0.1.0",
   "description": "Proxy Amp CLI through local OAuth subscriptions (Claude Code, Codex, Gemini CLI, Antigravity)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nghyane/ampcode-connector"
+  },
+  "keywords": [
+    "amp",
+    "ampcode",
+    "proxy",
+    "claude",
+    "openai",
+    "gemini",
+    "oauth"
+  ],
   "module": "src/index.ts",
   "type": "module",
   "files": [
@@ -9,6 +23,9 @@
     "config.yaml",
     "tsconfig.json"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "ampcode-connector": "src/index.ts"
   },
