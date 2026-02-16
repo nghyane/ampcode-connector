@@ -130,16 +130,19 @@ export async function setup(): Promise<void> {
   let hasAny = false;
 
   for (const p of providers) {
-    const tag =
-      p.status === "connected"
-        ? `${s.green}connected${s.reset}`
-        : p.status === "expired"
-          ? `${s.yellow}expired${s.reset}`
-          : `${s.dim}--${s.reset}`;
+    const connected = p.accounts.filter((a) => a.status === "connected");
+    const total = p.accounts.filter((a) => a.status !== "disconnected");
 
-    const email = p.email ? `  ${s.dim}${p.email}${s.reset}` : "";
-    line(`  ${p.label.padEnd(16)} ${tag}${email}`);
-    if (p.status === "connected") hasAny = true;
+    if (connected.length > 0) {
+      hasAny = true;
+      const emails = connected.map((a) => a.email).filter(Boolean).join(", ");
+      const info = emails ? `  ${s.dim}${emails}${s.reset}` : "";
+      line(`  ${p.label.padEnd(16)} ${s.green}${connected.length} account(s)${s.reset}${info}`);
+    } else if (total.length > 0) {
+      line(`  ${p.label.padEnd(16)} ${s.yellow}${total.length} expired${s.reset}`);
+    } else {
+      line(`  ${p.label.padEnd(16)} ${s.dim}--${s.reset}`);
+    }
   }
 
   if (!hasAny) {

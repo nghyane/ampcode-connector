@@ -2,6 +2,7 @@
 
 import { anthropic as config } from "../auth/configs.ts";
 import * as oauth from "../auth/oauth.ts";
+import * as store from "../auth/store.ts";
 import {
   ANTHROPIC_API_URL,
   CLAUDE_CODE_VERSION,
@@ -17,10 +18,13 @@ export const provider: Provider = {
   name: "Anthropic",
   routeDecision: "LOCAL_CLAUDE",
 
-  isAvailable: () => oauth.ready(config),
+  isAvailable: (account?: number) =>
+    account !== undefined ? !!store.get("anthropic", account)?.refreshToken : oauth.ready(config),
 
-  async forward(sub, body, originalHeaders, rewrite) {
-    const accessToken = await oauth.token(config);
+  accountCount: () => oauth.accountCount(config),
+
+  async forward(sub, body, originalHeaders, rewrite, account = 0) {
+    const accessToken = await oauth.token(config, account);
     if (!accessToken) return denied("Anthropic");
 
     return forward({

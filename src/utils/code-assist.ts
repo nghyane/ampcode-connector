@@ -22,9 +22,10 @@ export function wrapRequest(opts: WrapOptions): string {
 }
 
 /** Build the Cloud Code Assist URL for a given action. Preserves the original action
- *  (generateContent vs streamGenerateContent) — the ?alt=sse param handles SSE streaming. */
+ *  (generateContent vs streamGenerateContent). Only adds ?alt=sse for streaming actions. */
 export function buildUrl(endpoint: string, action: string): string {
-  return `${endpoint}/v1internal:${action}?alt=sse`;
+  const streaming = action.toLowerCase().includes("stream");
+  return `${endpoint}/v1internal:${action}${streaming ? "?alt=sse" : ""}`;
 }
 
 /** Unwrap Cloud Code Assist SSE envelope: {"response":{...},"traceId":"..."} → inner response.

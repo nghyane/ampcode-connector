@@ -1,7 +1,5 @@
-/** OAuth configurations for all three providers. */
-
 import { ANTHROPIC_TOKEN_URL, GOOGLE_TOKEN_URL, OPENAI_TOKEN_URL } from "../constants.ts";
-import { accountIdFromJWT, discoverProject } from "./discovery.ts";
+import { discoverAnthropic, discoverCodex, discoverGoogle } from "./discovery.ts";
 import type { OAuthConfig } from "./oauth.ts";
 
 export const anthropic: OAuthConfig = {
@@ -12,10 +10,11 @@ export const anthropic: OAuthConfig = {
   callbackPort: 54545,
   callbackPath: "/callback",
   scopes: "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers",
-  tokenContentType: "json",
-  useExpiryBuffer: true,
-  sendStateInTokenExchange: true,
-  authorizeExtraParams: { code: "true" },
+  bodyFormat: "json",
+  expiryBuffer: true,
+  sendStateInExchange: true,
+  authorizeExtra: { code: "true" },
+  extractIdentity: discoverAnthropic,
 };
 
 export const codex: OAuthConfig = {
@@ -26,20 +25,16 @@ export const codex: OAuthConfig = {
   callbackPort: 1455,
   callbackPath: "/auth/callback",
   scopes: "openid profile email offline_access",
-  tokenContentType: "form",
-  useExpiryBuffer: true,
-  authorizeExtraParams: {
+  bodyFormat: "form",
+  expiryBuffer: true,
+  authorizeExtra: {
     id_token_add_organizations: "true",
     codex_cli_simplified_flow: "true",
     originator: "opencode",
   },
-  onTokenExchange: async (data) => {
-    const accountId = accountIdFromJWT(data.access_token);
-    return accountId ? { accountId } : {};
-  },
+  extractIdentity: discoverCodex,
 };
 
-/** Single Google OAuth using Antigravity client — superset scopes cover both quota pools. */
 export const google: OAuthConfig = {
   providerName: "google",
   clientId: "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com",
@@ -55,8 +50,8 @@ export const google: OAuthConfig = {
     "https://www.googleapis.com/auth/cclog",
     "https://www.googleapis.com/auth/experimentsandconfigs",
   ].join(" "),
-  tokenContentType: "form",
-  useExpiryBuffer: true,
-  authorizeExtraParams: { access_type: "offline", prompt: "consent" },
-  onTokenExchange: async (data) => discoverProject(data.access_token),
+  bodyFormat: "form",
+  expiryBuffer: true,
+  authorizeExtra: { access_type: "offline", prompt: "consent" },
+  extractIdentity: discoverGoogle,
 };

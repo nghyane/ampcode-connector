@@ -1,12 +1,10 @@
-/** Single-screen TUI dashboard for login and status. */
-
 import * as configs from "../auth/configs.ts";
 import type { OAuthConfig } from "../auth/oauth.ts";
 import * as oauth from "../auth/oauth.ts";
 import type { ProviderName } from "../auth/store.ts";
 import * as store from "../auth/store.ts";
-import { cursor, eol, line, out, s, screen } from "./ansi.ts";
-import type { ConnectionStatus, ProviderStatus } from "./status.ts";
+import { cursor, line, s, screen } from "./ansi.ts";
+import type { AccountStatus, ConnectionStatus, ProviderStatus } from "./status.ts";
 import * as status from "./status.ts";
 
 const oauthConfigs: Record<ProviderName, OAuthConfig> = {
@@ -15,40 +13,46 @@ const oauthConfigs: Record<ProviderName, OAuthConfig> = {
   google: configs.google,
 };
 
-const icon: Record<ConnectionStatus, string> = {
+const ICON: Record<ConnectionStatus, string> = {
   connected: `${s.green}●${s.reset}`,
   expired: `${s.yellow}●${s.reset}`,
   disconnected: `${s.dim}○${s.reset}`,
 };
 
-const LABEL_WIDTH = 16;
+type Item =
+  | { type: "provider"; provider: ProviderStatus }
+  | { type: "account"; provider: ProviderStatus; account: AccountStatus };
 
 let selected = 0;
-let providers: ProviderStatus[] = [];
+let items: Item[] = [];
 let message = "";
 let busy = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 
 export function dashboard(): void {
-  if (!process.stdin.isTTY) {
-    throw new Error("Interactive dashboard requires a TTY. Run in a terminal, not piped.");
-  }
+  if (!process.stdin.isTTY) throw new Error("Interactive dashboard requires a TTY.");
 
-  providers = status.all();
-
+  rebuild();
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.setEncoding("utf8");
   cursor.hide();
   screen.clear();
-
   render();
   timer = setInterval(render, 1_000);
-
   process.stdin.on("data", onKey);
   process.on("exit", cleanup);
   process.on("SIGINT", () => process.exit());
   process.on("SIGTERM", () => process.exit());
+}
+
+function rebuild(): void {
+  items = [];
+  for (const p of status.all()) {
+    items.push({ type: "provider", provider: p });
+    for (const a of p.accounts) items.push({ type: "account", provider: p, account: a });
+  }
+  if (selected >= items.length) selected = Math.max(0, items.length - 1);
 }
 
 function cleanup(): void {
@@ -59,86 +63,83 @@ function cleanup(): void {
 
 function render(): void {
   cursor.home();
-
   line(`${s.bold} ampcode-connector${s.reset}`);
-  line(`${s.dim} ↑↓ navigate · enter login · d disconnect · q quit${s.reset}`);
+  line(`${s.dim} ↑↓ navigate · enter login/add · d disconnect · q quit${s.reset}`);
   line();
 
-  for (let i = 0; i < providers.length; i++) {
-    const p = providers[i]!;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
     const sel = i === selected;
-    const ic = icon[p.status];
-    const name = p.label.padEnd(LABEL_WIDTH);
-    const info = formatInfo(p);
 
-    if (sel) {
-      line(`${s.inverse} › ${ic} ${s.bold}${name}${s.reset}${s.inverse} ${info} ${s.reset}`);
+    if (item.type === "provider") {
+      renderProvider(item.provider, sel);
     } else {
-      line(`   ${ic} ${s.dim}${name}${s.reset} ${info}`);
-    }
-
-    if (p.sublabel) {
-      line(`     ${s.dim}${p.sublabel}${s.reset}`);
+      renderAccount(item.account, sel);
     }
   }
 
   line();
-
-  if (busy) {
-    line(`${s.cyan}   ⟳ waiting for browser…${s.reset}`);
-  } else if (message) {
-    line(`   ${message}`);
-  } else {
-    line();
-  }
+  if (busy) line(`${s.cyan}   ⟳ waiting for browser…${s.reset}`);
+  else if (message) line(`   ${message}`);
+  else line();
 }
 
-function formatInfo(p: ProviderStatus): string {
-  if (p.status === "disconnected") return `${s.dim}—${s.reset}`;
+function renderProvider(p: ProviderStatus, sel: boolean): void {
+  const n = p.accounts.length;
+  const connected = p.accounts.filter((a) => a.status === "connected").length;
+  const suffix = n > 0 ? ` ${s.dim}(${connected}/${n})${s.reset}` : "";
+  const label = p.label.padEnd(16);
+
+  if (sel) line(`${s.inverse} › ${s.bold}${label}${s.reset}${s.inverse}${suffix} ${s.reset}`);
+  else line(`   ${s.bold}${label}${s.reset}${suffix}`);
+
+  if (p.sublabel) line(`     ${s.dim}${p.sublabel}${s.reset}`);
+}
+
+function renderAccount(a: AccountStatus, sel: boolean): void {
+  const ic = ICON[a.status];
+  const tag = `#${a.account}`.padEnd(4);
+  const info = formatInfo(a);
+
+  if (sel) line(`${s.inverse}     ${ic} ${tag} ${info} ${s.reset}`);
+  else line(`     ${ic} ${s.dim}${tag}${s.reset} ${info}`);
+}
+
+function formatInfo(a: AccountStatus): string {
+  if (a.status === "disconnected") return `${s.dim}—${s.reset}`;
 
   const parts: string[] = [];
-
-  if (p.status === "connected") {
-    parts.push(`${s.green}connected${s.reset}`);
-  } else {
-    parts.push(`${s.yellow}expired${s.reset}`);
-  }
-
-  if (p.expiresAt && p.status === "connected") {
-    parts.push(`${s.dim}${status.remaining(p.expiresAt)}${s.reset}`);
-  }
-
-  if (p.email) parts.push(`${s.dim}${p.email}${s.reset}`);
-
+  parts.push(a.status === "connected" ? `${s.green}connected${s.reset}` : `${s.yellow}expired${s.reset}`);
+  if (a.expiresAt && a.status === "connected") parts.push(`${s.dim}${status.remaining(a.expiresAt)}${s.reset}`);
+  if (a.email) parts.push(`${s.dim}${a.email}${s.reset}`);
   return parts.join(`${s.dim} · ${s.reset}`);
 }
 
 async function onKey(data: string): Promise<void> {
   if (busy) return;
 
-  if (data === "\x03" || data === "q") {
-    process.exit();
-    return;
-  }
-
+  if (data === "\x03" || data === "q") return void process.exit();
   if (data === "\x1b[A") {
     selected = Math.max(0, selected - 1);
     render();
     return;
   }
   if (data === "\x1b[B") {
-    selected = Math.min(providers.length - 1, selected + 1);
+    selected = Math.min(items.length - 1, selected + 1);
     render();
     return;
   }
 
   if (data === "\r" || data === "\n") {
-    await doLogin(providers[selected]!);
+    const item = items[selected]!;
+    await doLogin(item.provider);
     return;
   }
 
   if (data === "d" || data === "D") {
-    doDisconnect(providers[selected]!);
+    const item = items[selected]!;
+    if (item.type === "account") doDisconnect(item.provider, item.account.account);
+    else doDisconnectAll(item.provider);
     return;
   }
 }
@@ -149,22 +150,28 @@ async function doLogin(p: ProviderStatus): Promise<void> {
   render();
 
   try {
-    await oauth.login(oauthConfigs[p.name]);
-    message = `${s.green}✓ ${p.label} logged in${s.reset}`;
+    const creds = await oauth.login(oauthConfigs[p.name]);
+    message = `${s.green}✓ ${p.label} ${creds.email ?? "account"} logged in${s.reset}`;
   } catch (err) {
     message = `${s.red}✗ ${err instanceof Error ? err.message : String(err)}${s.reset}`;
   }
 
-  providers = status.all();
+  rebuild();
   busy = false;
   render();
 }
 
-function doDisconnect(p: ProviderStatus): void {
-  if (p.status === "disconnected") return;
+function doDisconnect(p: ProviderStatus, account: number): void {
+  store.remove(p.name, account);
+  message = `${s.yellow}✗ ${p.label} #${account} disconnected${s.reset}`;
+  rebuild();
+  render();
+}
 
+function doDisconnectAll(p: ProviderStatus): void {
+  if (p.accounts.length === 0) return;
   store.remove(p.name);
-  message = `${s.yellow}✗ ${p.label} disconnected${s.reset}`;
-  providers = status.all();
+  message = `${s.yellow}✗ ${p.label} all disconnected${s.reset}`;
+  rebuild();
   render();
 }

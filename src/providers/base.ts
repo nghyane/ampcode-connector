@@ -8,8 +8,15 @@ import * as sse from "../utils/streaming.ts";
 export interface Provider {
   readonly name: string;
   readonly routeDecision: RouteDecision;
-  isAvailable(): boolean;
-  forward(path: string, body: string, headers: Headers, rewrite?: (data: string) => string): Promise<Response>;
+  isAvailable(account?: number): boolean;
+  accountCount(): number;
+  forward(
+    path: string,
+    body: string,
+    headers: Headers,
+    rewrite?: (data: string) => string,
+    account?: number,
+  ): Promise<Response>;
 }
 
 interface ForwardOptions {

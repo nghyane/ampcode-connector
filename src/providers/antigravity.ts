@@ -28,13 +28,16 @@ export const provider: Provider = {
   name: "Antigravity",
   routeDecision: "LOCAL_ANTIGRAVITY",
 
-  isAvailable: () => oauth.ready(config),
+  isAvailable: (account?: number) =>
+    account !== undefined ? !!store.get("google", account)?.refreshToken : oauth.ready(config),
 
-  async forward(sub, body, originalHeaders, rewrite) {
-    const accessToken = await oauth.token(config);
+  accountCount: () => oauth.accountCount(config),
+
+  async forward(sub, body, originalHeaders, rewrite, account = 0) {
+    const accessToken = await oauth.token(config, account);
     if (!accessToken) return denied("Antigravity");
 
-    const creds = store.get("google");
+    const creds = store.get("google", account);
     const projectId = creds?.projectId ?? "";
 
     const headers: Record<string, string> = {

@@ -2,6 +2,7 @@
 
 import { codex as config } from "../auth/configs.ts";
 import * as oauth from "../auth/oauth.ts";
+import * as store from "../auth/store.ts";
 import { OPENAI_API_URL } from "../constants.ts";
 import * as path from "../utils/path.ts";
 import type { Provider } from "./base.ts";
@@ -11,10 +12,13 @@ export const provider: Provider = {
   name: "OpenAI Codex",
   routeDecision: "LOCAL_CODEX",
 
-  isAvailable: () => oauth.ready(config),
+  isAvailable: (account?: number) =>
+    account !== undefined ? !!store.get("codex", account)?.refreshToken : oauth.ready(config),
 
-  async forward(sub, body, _originalHeaders, rewrite) {
-    const accessToken = await oauth.token(config);
+  accountCount: () => oauth.accountCount(config),
+
+  async forward(sub, body, _originalHeaders, rewrite, account = 0) {
+    const accessToken = await oauth.token(config, account);
     if (!accessToken) return denied("OpenAI Codex");
 
     return forward({

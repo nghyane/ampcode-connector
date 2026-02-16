@@ -58,7 +58,7 @@ export function transform(
 
   const stream = new TransformStream<Uint8Array, Uint8Array>({
     transform(raw, controller) {
-      buffer += decoder.decode(raw, { stream: true });
+      buffer += decoder.decode(raw, { stream: true }).replaceAll("\r\n", "\n");
 
       const boundary = buffer.lastIndexOf("\n\n");
       if (boundary === -1) return;

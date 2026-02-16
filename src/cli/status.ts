@@ -1,17 +1,20 @@
-/** Provider status checking for the TUI dashboard. */
-
 import type { Credentials, ProviderName } from "../auth/store.ts";
 import * as store from "../auth/store.ts";
 
 export type ConnectionStatus = "connected" | "expired" | "disconnected";
 
+export interface AccountStatus {
+  account: number;
+  status: ConnectionStatus;
+  email?: string;
+  expiresAt?: number;
+}
+
 export interface ProviderStatus {
   name: ProviderName;
   label: string;
   sublabel?: string;
-  status: ConnectionStatus;
-  email?: string;
-  expiresAt?: number;
+  accounts: AccountStatus[];
 }
 
 const PROVIDERS: { name: ProviderName; label: string; sublabel?: string }[] = [
@@ -20,16 +23,23 @@ const PROVIDERS: { name: ProviderName; label: string; sublabel?: string }[] = [
   { name: "google", label: "Google", sublabel: "Gemini CLI + Antigravity" },
 ];
 
-function connectionOf(creds: Credentials | undefined): ConnectionStatus {
-  if (!creds?.refreshToken) return "disconnected";
+function connectionOf(creds: Credentials): ConnectionStatus {
+  if (!creds.refreshToken) return "disconnected";
   return store.fresh(creds) ? "connected" : "expired";
 }
 
 export function all(): ProviderStatus[] {
-  return PROVIDERS.map(({ name, label, sublabel }) => {
-    const creds = store.get(name);
-    return { name, label, sublabel, status: connectionOf(creds), email: creds?.email, expiresAt: creds?.expiresAt };
-  });
+  return PROVIDERS.map(({ name, label, sublabel }) => ({
+    name,
+    label,
+    sublabel,
+    accounts: store.getAll(name).map((e) => ({
+      account: e.account,
+      status: connectionOf(e.credentials),
+      email: e.credentials.email,
+      expiresAt: e.credentials.expiresAt,
+    })),
+  }));
 }
 
 export function remaining(expiresAt: number): string {
