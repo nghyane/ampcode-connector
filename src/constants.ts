@@ -7,6 +7,28 @@ export const DEFAULT_ANTIGRAVITY_PROJECT = "rising-fact-p41fc";
 
 export const ANTHROPIC_API_URL = "https://api.anthropic.com";
 export const OPENAI_API_URL = "https://api.openai.com";
+export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
+
+/** Codex-specific headers required by the ChatGPT backend. */
+export const codexHeaders = {
+  BETA: "OpenAI-Beta",
+  ACCOUNT_ID: "chatgpt-account-id",
+  ORIGINATOR: "originator",
+  SESSION_ID: "session_id",
+  CONVERSATION_ID: "conversation_id",
+} as const;
+
+export const codexHeaderValues = {
+  BETA_RESPONSES: "responses=experimental",
+  ORIGINATOR: "codex_cli_rs",
+  VERSION: "0.101.0",
+  USER_AGENT: `codex_cli_rs/0.101.0 (${process.platform} ${process.arch})`,
+} as const;
+
+/** Map /v1/responses → /codex/responses for the ChatGPT backend. */
+export const codexPathMap: Record<string, string> = {
+  "/v1/responses": "/codex/responses",
+} as const;
 export const DEFAULT_AMP_UPSTREAM_URL = "https://ampcode.com";
 
 export const ANTHROPIC_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";

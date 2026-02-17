@@ -36,14 +36,15 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
   });
 
   const contentType = response.headers.get("Content-Type") ?? "application/json";
-  const isSSE = contentType.includes("text/event-stream") || opts.streaming;
-  if (isSSE) return sse.proxy(response, opts.rewrite);
 
   if (!response.ok) {
     const text = await response.text();
-    logger.error(`${opts.providerName} API error`, { error: text.slice(0, 200) });
+    logger.error(`${opts.providerName} API error (${response.status})`, { error: text.slice(0, 200) });
     return new Response(text, { status: response.status, headers: { "Content-Type": contentType } });
   }
+
+  const isSSE = contentType.includes("text/event-stream") || opts.streaming;
+  if (isSSE) return sse.proxy(response, opts.rewrite);
 
   if (opts.rewrite) {
     const text = await response.text();

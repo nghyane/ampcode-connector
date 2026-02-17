@@ -1,6 +1,6 @@
 {
   "name": "ampcode-connector",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Proxy AmpCode through local OAuth subscriptions (Claude Code, Codex, Gemini CLI, Antigravity)",
   "license": "MIT",
   "repository": {
@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.0",
-    "@types/bun": "latest"
+    "@types/bun": "^1.3.9"
   },
   "peerDependencies": {
     "typescript": "^5"
