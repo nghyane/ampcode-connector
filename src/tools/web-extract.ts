@@ -72,69 +72,15 @@ function toMarkdown(raw: string, contentType: string): string {
   return raw;
 }
 
+// biome-ignore format: compact stop-word list
 /** Common English stop words — cheap filter to avoid scoring noise. */
-const STOP_WORDS = new Set([
-  "the",
-  "and",
-  "for",
-  "are",
-  "but",
-  "not",
-  "you",
-  "all",
-  "can",
-  "her",
-  "was",
-  "one",
-  "our",
-  "out",
-  "has",
-  "have",
-  "had",
-  "been",
-  "from",
-  "this",
-  "that",
-  "with",
-  "they",
-  "which",
-  "their",
-  "will",
-  "each",
-  "make",
-  "like",
-  "just",
-  "over",
-  "such",
-  "than",
-  "them",
-  "very",
-  "some",
-  "what",
-  "about",
-  "into",
-  "more",
-  "other",
-  "then",
-  "these",
-  "when",
-  "where",
-  "how",
-  "does",
-  "also",
-  "after",
-  "should",
-  "would",
-  "could",
-  "being",
-  "there",
-  "before",
-  "between",
-  "those",
-  "through",
-  "while",
-  "using",
-]);
+const STOP_WORDS = new Set(
+  ("the and for are but not you all can her was one our out " +
+  "has have had been from this that with they which their will " +
+  "each make like just over such than them very some what about " +
+  "into more other then these when where how does also after " +
+  "should would could being there before between those through while using").split(" "),
+);
 
 /** Count non-overlapping occurrences of `kw` in `text`. */
 function countOccurrences(text: string, kw: string): number {
