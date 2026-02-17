@@ -42,6 +42,10 @@ async function main(): Promise<void> {
   const config = await loadConfig();
   setLogLevel(config.logLevel);
   startServer(config);
+
+  // Non-blocking update check — runs in background after server starts
+  const { checkForUpdates } = await import("./utils/update-check.ts");
+  checkForUpdates();
 }
 
 function usage(): void {

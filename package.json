@@ -1,6 +1,6 @@
 {
   "name": "ampcode-connector",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Proxy Amp CLI through local OAuth subscriptions (Claude Code, Codex, Gemini CLI, Antigravity)",
   "license": "MIT",
   "repository": {
