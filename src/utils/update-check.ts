@@ -1,6 +1,6 @@
 /** Check npm registry for newer versions on startup. */
 
-import { s, line } from "../cli/ansi.ts";
+import { line, s } from "../cli/ansi.ts";
 
 const PACKAGE_NAME = "ampcode-connector";
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
@@ -27,8 +27,8 @@ async function fetchLatestVersion(): Promise<string | null> {
 
 function isNewer(latest: string, current: string): boolean {
   const parse = (v: string) => v.split(".").map(Number);
-  const [la, lb, lc] = parse(latest);
-  const [ca, cb, cc] = parse(current);
+  const [la = 0, lb = 0, lc = 0] = parse(latest);
+  const [ca = 0, cb = 0, cc = 0] = parse(current);
   return la > ca || (la === ca && lb > cb) || (la === ca && lb === cb && lc > cc);
 }
 

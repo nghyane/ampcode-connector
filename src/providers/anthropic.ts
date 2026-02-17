@@ -10,7 +10,6 @@ import {
   filteredBetaFeatures,
   stainlessHeaders,
 } from "../constants.ts";
-import * as path from "../utils/path.ts";
 import type { Provider } from "./base.ts";
 import { denied, forward } from "./base.ts";
 
@@ -29,12 +28,13 @@ export const provider: Provider = {
 
     return forward({
       url: `${ANTHROPIC_API_URL}${sub}`,
-      body,
+      body: body.forwardBody,
+      streaming: body.stream,
       providerName: "Anthropic",
       rewrite,
       headers: {
         ...stainlessHeaders,
-        Accept: path.streaming(body) ? "text/event-stream" : "application/json",
+        Accept: body.stream ? "text/event-stream" : "application/json",
         "Accept-Encoding": "br, gzip, deflate",
         Connection: "keep-alive",
         "Content-Type": "application/json",

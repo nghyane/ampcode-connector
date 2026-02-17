@@ -1,8 +1,8 @@
 /** Provider interface and shared request forwarding. */
 
+import type { ParsedBody } from "../server/body.ts";
 import type { RouteDecision } from "../utils/logger.ts";
 import { logger } from "../utils/logger.ts";
-import * as path from "../utils/path.ts";
 import * as sse from "../utils/streaming.ts";
 
 export interface Provider {
@@ -12,7 +12,7 @@ export interface Provider {
   accountCount(): number;
   forward(
     path: string,
-    body: string,
+    body: ParsedBody,
     headers: Headers,
     rewrite?: (data: string) => string,
     account?: number,
@@ -22,6 +22,7 @@ export interface Provider {
 interface ForwardOptions {
   url: string;
   body: string;
+  streaming: boolean;
   headers: Record<string, string>;
   providerName: string;
   rewrite?: (data: string) => string;
@@ -34,30 +35,22 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
     body: opts.body,
   });
 
-  const isSSE = response.headers.get("Content-Type")?.includes("text/event-stream") || path.streaming(opts.body);
+  const contentType = response.headers.get("Content-Type") ?? "application/json";
+  const isSSE = contentType.includes("text/event-stream") || opts.streaming;
   if (isSSE) return sse.proxy(response, opts.rewrite);
 
   if (!response.ok) {
     const text = await response.text();
     logger.error(`${opts.providerName} API error`, { error: text.slice(0, 200) });
-    return new Response(text, {
-      status: response.status,
-      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
-    });
+    return new Response(text, { status: response.status, headers: { "Content-Type": contentType } });
   }
 
   if (opts.rewrite) {
     const text = await response.text();
-    return new Response(opts.rewrite(text), {
-      status: response.status,
-      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
-    });
+    return new Response(opts.rewrite(text), { status: response.status, headers: { "Content-Type": contentType } });
   }
 
-  return new Response(response.body, {
-    status: response.status,
-    headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
-  });
+  return new Response(response.body, { status: response.status, headers: { "Content-Type": contentType } });
 }
 
 export function denied(providerName: string): Response {

@@ -13,6 +13,7 @@ interface LogEntry {
   model?: string;
   duration?: number;
   error?: string;
+  [key: string]: unknown;
 }
 
 const LOG_LEVELS: Record<LogLevel, number> = {

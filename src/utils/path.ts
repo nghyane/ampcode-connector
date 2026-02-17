@@ -22,15 +22,6 @@ export function subpath(pathname: string): string {
   return match?.[1] ?? pathname;
 }
 
-export function model(body: string): string | null {
-  try {
-    const parsed = JSON.parse(body) as { model?: string };
-    return parsed.model ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export function modelFromUrl(url: string): string | null {
   const match = url.match(/models\/([^/:]+)/);
   return match?.[1] ?? null;
@@ -40,13 +31,4 @@ export function gemini(url: string): { model: string; action: string } | null {
   const match = url.match(/models\/([^/:]+):(\w+)/);
   if (!match) return null;
   return { model: match[1]!, action: match[2]! };
-}
-
-export function streaming(body: string): boolean {
-  try {
-    const parsed = JSON.parse(body) as { stream?: boolean };
-    return parsed.stream === true;
-  } catch {
-    return false;
-  }
 }

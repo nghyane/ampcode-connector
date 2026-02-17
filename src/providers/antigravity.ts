@@ -6,7 +6,7 @@ import { google as config } from "../auth/configs.ts";
 import * as oauth from "../auth/oauth.ts";
 import * as store from "../auth/store.ts";
 import { ANTIGRAVITY_DAILY_ENDPOINT, AUTOPUSH_ENDPOINT, CODE_ASSIST_ENDPOINT } from "../constants.ts";
-import * as codeAssist from "../utils/code-assist.ts";
+import { buildUrl, maybeWrap, withUnwrap } from "../utils/code-assist.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
 import type { Provider } from "./base.ts";
@@ -53,37 +53,20 @@ export const provider: Provider = {
     const gemini = path.gemini(sub);
     const action = gemini?.action ?? "generateContent";
     const model = gemini?.model ?? "";
-    const requestBody = maybeWrap(body, projectId, model);
-    const unwrapThenRewrite = withUnwrap(rewrite);
-
-    return tryEndpoints(requestBody, headers, action, unwrapThenRewrite);
-  },
-};
-
-function withUnwrap(rewrite?: (d: string) => string): (d: string) => string {
-  return rewrite ? (d: string) => rewrite(codeAssist.unwrap(d)) : codeAssist.unwrap;
-}
-
-function maybeWrap(body: string, projectId: string, model: string): string {
-  try {
-    const parsed = JSON.parse(body) as Record<string, unknown>;
-    if (parsed["project"]) return body;
-    return codeAssist.wrapRequest({
-      projectId,
-      model,
-      body: parsed,
+    const requestBody = maybeWrap(body.parsed, body.forwardBody, projectId, model, {
       userAgent: "antigravity",
       requestIdPrefix: "agent",
       requestType: "agent",
     });
-  } catch (err) {
-    logger.debug("Body parse failed, forwarding as-is", { error: String(err) });
-    return body;
-  }
-}
+    const unwrapThenRewrite = withUnwrap(rewrite);
+
+    return tryEndpoints(requestBody, body.stream, headers, action, unwrapThenRewrite);
+  },
+};
 
 async function tryEndpoints(
   body: string,
+  streaming: boolean,
   headers: Record<string, string>,
   action: string,
   rewrite?: (data: string) => string,
@@ -91,9 +74,9 @@ async function tryEndpoints(
   let lastError: Error | null = null;
 
   for (const endpoint of endpoints) {
-    const url = codeAssist.buildUrl(endpoint, action);
+    const url = buildUrl(endpoint, action);
     try {
-      const response = await forward({ url, body, headers, providerName: "Antigravity", rewrite });
+      const response = await forward({ url, body, streaming, headers, providerName: "Antigravity", rewrite });
       if (response.status < 500) return response;
       lastError = new Error(`${endpoint} returned ${response.status}`);
       logger.debug("Endpoint 5xx, trying next", { provider: "Antigravity" });

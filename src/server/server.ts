@@ -7,6 +7,7 @@ import { parseRetryAfter, record429 } from "../routing/cooldown.ts";
 import { recordSuccess, rerouteAfter429, routeRequest } from "../routing/router.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
+import { parseBody } from "./body.ts";
 
 /** Max 429-reroute attempts before falling back to upstream. */
 const MAX_REROUTE_ATTEMPTS = 4;
@@ -70,21 +71,20 @@ async function handleProvider(
   const sub = path.subpath(pathname);
   const threadId = req.headers.get("x-amp-thread-id") ?? undefined;
 
-  let body = "";
-  if (req.method === "POST") body = await req.text();
-
-  const model = path.model(body) ?? path.modelFromUrl(sub);
-  let route = routeRequest(providerName, model, config, threadId);
+  const rawBody = req.method === "POST" ? await req.text() : "";
+  const body = parseBody(rawBody, sub);
+  const ampModel = body.ampModel;
+  let route = routeRequest(providerName, ampModel, config, threadId);
 
   logger.info(
-    `ROUTE ${route.decision} provider=${providerName} model=${model ?? "?"} account=${route.account} sub=${sub}`,
+    `ROUTE ${route.decision} provider=${providerName} model=${ampModel ?? "?"} account=${route.account} sub=${sub}`,
   );
 
   if (route.handler) {
-    const rewrite = model ? rewriter.rewrite(model) : undefined;
+    const rewrite = ampModel ? rewriter.rewrite(ampModel) : undefined;
     const response = await route.handler.forward(sub, body, req.headers, rewrite, route.account);
 
-    // 429 → try to preserve prompt cache by waiting briefly on same account,
+    // 429 — try to preserve prompt cache by waiting briefly on same account,
     // then fall back to rerouting to a different account/pool.
     if (response.status === 429 && route.pool) {
       const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
@@ -108,11 +108,11 @@ async function handleProvider(
 
       // Reroute to different account/pool (cache loss accepted)
       for (let attempt = 0; attempt < MAX_REROUTE_ATTEMPTS; attempt++) {
-        const next = rerouteAfter429(providerName, model, config, route.pool, route.account, retryAfter, threadId);
+        const next = rerouteAfter429(providerName, ampModel, config, route.pool, route.account, retryAfter, threadId);
         if (!next) break;
 
         route = next;
-        logger.info(`REROUTE → ${route.decision} account=${route.account}`);
+        logger.info(`REROUTE -> ${route.decision} account=${route.account}`);
         const retryResponse = await route.handler!.forward(sub, body, req.headers, rewrite, route.account);
 
         if (retryResponse.status === 429 && route.pool) {
@@ -140,7 +140,7 @@ async function handleProvider(
   const upstreamReq = new Request(req.url, {
     method: req.method,
     headers: req.headers,
-    body: body || undefined,
+    body: body.raw || undefined,
   });
   return upstream.forward(upstreamReq, config.ampUpstreamUrl, config.ampApiKey);
 }

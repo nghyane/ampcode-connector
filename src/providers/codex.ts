@@ -4,7 +4,6 @@ import { codex as config } from "../auth/configs.ts";
 import * as oauth from "../auth/oauth.ts";
 import * as store from "../auth/store.ts";
 import { OPENAI_API_URL } from "../constants.ts";
-import * as path from "../utils/path.ts";
 import type { Provider } from "./base.ts";
 import { denied, forward } from "./base.ts";
 
@@ -23,13 +22,14 @@ export const provider: Provider = {
 
     return forward({
       url: `${OPENAI_API_URL}${sub}`,
-      body,
+      body: body.forwardBody,
+      streaming: body.stream,
       providerName: "OpenAI Codex",
       rewrite,
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
-        Accept: path.streaming(body) ? "text/event-stream" : "application/json",
+        Accept: body.stream ? "text/event-stream" : "application/json",
       },
     });
   },

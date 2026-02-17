@@ -15,6 +15,7 @@ describe("path.passthrough", () => {
     expect(path.passthrough("/api/threads/123")).toBe(true);
     expect(path.passthrough("/api/otel")).toBe(true);
     expect(path.passthrough("/api/tab")).toBe(true);
+    expect(path.passthrough("/api/durable-thread-workers")).toBe(true);
   });
 
   test("rejects browser routes (handled separately)", () => {
@@ -73,6 +74,15 @@ describe("path.provider", () => {
 
   test("extracts google", () => {
     expect(path.provider("/api/provider/google/v1beta/models/gemini-pro:generateContent")).toBe("google");
+  });
+
+  test("extracts other Amp providers (passthrough to upstream)", () => {
+    expect(path.provider("/api/provider/xai/v1/chat/completions")).toBe("xai");
+    expect(path.provider("/api/provider/cerebras/v1/chat/completions")).toBe("cerebras");
+    expect(path.provider("/api/provider/fireworks/v1/chat/completions")).toBe("fireworks");
+    expect(path.provider("/api/provider/groq/v1/chat/completions")).toBe("groq");
+    expect(path.provider("/api/provider/baseten/v1/chat/completions")).toBe("baseten");
+    expect(path.provider("/api/provider/kimi/v1/chat/completions")).toBe("kimi");
   });
 
   test("returns null for non-provider paths", () => {

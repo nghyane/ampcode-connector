@@ -11,6 +11,7 @@ import * as store from "../src/auth/store.ts";
 import { provider as antigravity } from "../src/providers/antigravity.ts";
 import { provider as gemini } from "../src/providers/gemini.ts";
 import * as rewriter from "../src/proxy/rewriter.ts";
+import type { ParsedBody } from "../src/server/body.ts";
 import * as path from "../src/utils/path.ts";
 
 let creds: ReturnType<typeof store.get>;
@@ -27,8 +28,16 @@ function proxyServer(provider: typeof gemini | typeof antigravity) {
     async fetch(req) {
       const { pathname } = new URL(req.url);
       const sub = path.subpath(pathname);
-      const body = req.method === "POST" ? await req.text() : "";
-      const model = path.model(body) ?? path.modelFromUrl(sub);
+      const raw = req.method === "POST" ? await req.text() : "";
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+      const model = (parsed && typeof parsed["model"] === "string" ? parsed["model"] : null) ?? path.modelFromUrl(sub);
+      const body: ParsedBody = {
+        raw,
+        parsed,
+        ampModel: model,
+        stream: parsed?.["stream"] === true,
+        forwardBody: raw,
+      };
       const rewrite = model ? rewriter.rewrite(model) : undefined;
       return provider.forward(sub, body, req.headers, rewrite);
     },

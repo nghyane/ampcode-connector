@@ -40,3 +40,21 @@ export function unwrap(data: string): string {
     return data;
   }
 }
+
+/** Chain CCA unwrap with an optional rewrite function. */
+export function withUnwrap(rewrite?: (d: string) => string): (d: string) => string {
+  return rewrite ? (d: string) => rewrite(unwrap(d)) : unwrap;
+}
+
+/** Wrap body in CCA envelope if not already wrapped. */
+export function maybeWrap(
+  parsed: Record<string, unknown> | null,
+  raw: string,
+  projectId: string,
+  model: string,
+  opts: { userAgent: "antigravity" | "pi-coding-agent"; requestIdPrefix: "agent" | "pi"; requestType?: "agent" },
+): string {
+  if (!parsed) return raw;
+  if (parsed["project"]) return raw;
+  return wrapRequest({ projectId, model, body: parsed, ...opts });
+}

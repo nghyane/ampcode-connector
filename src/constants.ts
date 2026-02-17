@@ -56,6 +56,7 @@ export const passthroughPrefixes = [
   "/api/threads",
   "/api/otel",
   "/api/tab",
+  "/api/durable-thread-workers",
 ] as const;
 
 /** Browser routes — redirect to ampcode.com (auth cookies need correct domain). */

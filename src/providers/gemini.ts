@@ -8,7 +8,7 @@ import { google as config } from "../auth/configs.ts";
 import * as oauth from "../auth/oauth.ts";
 import * as store from "../auth/store.ts";
 import { CODE_ASSIST_ENDPOINT } from "../constants.ts";
-import * as codeAssist from "../utils/code-assist.ts";
+import { buildUrl, maybeWrap, withUnwrap } from "../utils/code-assist.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
 import type { Provider } from "./base.ts";
@@ -53,31 +53,20 @@ export const provider: Provider = {
       return denied("Gemini CLI (unsupported path)");
     }
 
-    const url = codeAssist.buildUrl(CODE_ASSIST_ENDPOINT, gemini.action);
-    const requestBody = maybeWrap(body, projectId, gemini.model);
-    const unwrapThenRewrite = withUnwrap(rewrite);
-
-    return forward({ url, body: requestBody, headers, providerName: "Gemini CLI", rewrite: unwrapThenRewrite });
-  },
-};
-
-function withUnwrap(rewrite?: (d: string) => string): (d: string) => string {
-  return rewrite ? (d: string) => rewrite(codeAssist.unwrap(d)) : codeAssist.unwrap;
-}
-
-function maybeWrap(body: string, projectId: string, model: string): string {
-  try {
-    const parsed = JSON.parse(body) as Record<string, unknown>;
-    if (parsed["project"]) return body;
-    return codeAssist.wrapRequest({
-      projectId,
-      model,
-      body: parsed,
+    const url = buildUrl(CODE_ASSIST_ENDPOINT, gemini.action);
+    const requestBody = maybeWrap(body.parsed, body.forwardBody, projectId, gemini.model, {
       userAgent: "pi-coding-agent",
       requestIdPrefix: "pi",
     });
-  } catch (err) {
-    logger.debug("Body parse failed, forwarding as-is", { error: String(err) });
-    return body;
-  }
-}
+    const unwrapThenRewrite = withUnwrap(rewrite);
+
+    return forward({
+      url,
+      body: requestBody,
+      streaming: body.stream,
+      headers,
+      providerName: "Gemini CLI",
+      rewrite: unwrapThenRewrite,
+    });
+  },
+};

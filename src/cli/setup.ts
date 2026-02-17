@@ -135,7 +135,10 @@ export async function setup(): Promise<void> {
 
     if (connected.length > 0) {
       hasAny = true;
-      const emails = connected.map((a) => a.email).filter(Boolean).join(", ");
+      const emails = connected
+        .map((a) => a.email)
+        .filter(Boolean)
+        .join(", ");
       const info = emails ? `  ${s.dim}${emails}${s.reset}` : "";
       line(`  ${p.label.padEnd(16)} ${s.green}${connected.length} account(s)${s.reset}${info}`);
     } else if (total.length > 0) {
