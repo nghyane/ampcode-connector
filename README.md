@@ -1,6 +1,6 @@
 # ampcode-connector
 
-Proxy [Amp CLI](https://ampcode.com) through your existing CLI subscriptions — use what you already have instead of Amp credits.
+Stop burning Amp credits. Route [Amp CLI](https://ampcode.com) through your **existing** Claude Code, Codex CLI & Gemini CLI subscriptions — for free.
 
 ```
 Amp CLI → ampcode-connector → Claude Code      (free)
@@ -9,46 +9,53 @@ Amp CLI → ampcode-connector → Claude Code      (free)
                              → Amp upstream     (paid, last resort)
 ```
 
-## Why
+## Supported Providers
 
-| Provider | Models | Quota |
-|----------|--------|-------|
-| Claude Code | Opus, Sonnet, Haiku | Anthropic OAuth |
-| OpenAI Codex CLI | GPT-5, o3 | OpenAI OAuth |
-| Gemini CLI | Gemini Pro, Flash | Google OAuth (dual: Gemini + Vertex pools) |
+| Provider | Models | How |
+|----------|--------|-----|
+| **Claude Code** | Opus 4, Sonnet 4, Haiku | Anthropic OAuth |
+| **OpenAI Codex CLI** | GPT-5, o3, Codex | OpenAI OAuth |
+| **Gemini CLI** | Gemini Pro, Flash | Google OAuth (dual: Gemini + Vertex pools) |
 
-Multi-account support — log in multiple times per provider for higher throughput.
+> **Multi-account** — log in multiple times per provider to multiply your quota.
 
 ## Quick Start
+
+Three commands. That's it.
+
+```bash
+bunx ampcode-connector setup    # point Amp CLI → proxy
+bunx ampcode-connector login    # authenticate providers (browser OAuth)
+bunx ampcode-connector          # start proxy
+```
+
+<details>
+<summary>Or clone & run locally</summary>
 
 ```bash
 git clone https://github.com/nghyane/ampcode-connector.git
 cd ampcode-connector
 bun install
 
-bun run setup          # auto-configures Amp CLI → proxy
-bun run login          # interactive provider login (TUI)
-bun start              # start proxy
+bun run setup
+bun run login
+bun start
 ```
+
+</details>
 
 Requires [Bun](https://bun.sh) 1.3+.
 
 ### Provider Login
 
 ```bash
-bun run login              # interactive dashboard (↑↓ navigate, enter login, d disconnect)
-bun run login anthropic    # Claude Code
-bun run login codex        # OpenAI Codex CLI
-bun run login google       # Gemini CLI + Antigravity
+bunx ampcode-connector login              # interactive TUI (↑↓ navigate, enter to login, d to disconnect)
+bunx ampcode-connector login anthropic    # Claude Code
+bunx ampcode-connector login codex        # OpenAI Codex CLI
+bunx ampcode-connector login google       # Gemini CLI + Antigravity
 ```
 
-Each login opens your browser for OAuth. Log in multiple times to add accounts.
-
-## Configuration
-
-See [`config.yaml`](config.yaml) — port, log level, enable/disable providers.
-
-Amp API key resolution: `config.yaml` → `AMP_API_KEY` env → `~/.local/share/amp/secrets.json`.
+Each login opens your browser. Log in multiple times to stack accounts.
 
 ## How It Works
 
@@ -60,20 +67,26 @@ On 429 → retry with different account/pool
 On 401 → fallback to Amp upstream
 ```
 
-Non-AI routes (auth, threads, telemetry) pass through to `ampcode.com` transparently.
+Non-AI routes (auth, threads, telemetry) pass through to `ampcode.com` transparently — the proxy is invisible to Amp.
 
-### Routing
+### Smart Routing
 
-- **Thread affinity** — same thread sticks to same account
+- **Thread affinity** — same thread sticks to the same account for consistency
 - **Least-connections** — new threads go to the least-loaded account
-- **Cooldown** — 429'd accounts are temporarily skipped
-- **Google cascade** — Gemini → Antigravity (separate quota pools)
+- **Cooldown** — rate-limited accounts are temporarily skipped
+- **Google cascade** — Gemini → Antigravity (separate quota pools, double the free tier)
+
+## Configuration
+
+Edit [`config.yaml`](config.yaml) to change port, log level, or toggle providers.
+
+Amp API key resolution: `config.yaml` → `AMP_API_KEY` env → `~/.local/share/amp/secrets.json`.
 
 ## Development
 
 ```bash
-bun run dev        # --watch
-bun test           # tests
+bun run dev        # --watch mode
+bun test           # run tests
 bun run check      # lint + typecheck + test
 ```
 
