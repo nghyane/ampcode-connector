@@ -72,7 +72,82 @@ function toMarkdown(raw: string, contentType: string): string {
   return raw;
 }
 
-/** Split markdown into paragraphs, score by keyword overlap with objective, return top excerpts. */
+/** Common English stop words — cheap filter to avoid scoring noise. */
+const STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "are",
+  "but",
+  "not",
+  "you",
+  "all",
+  "can",
+  "her",
+  "was",
+  "one",
+  "our",
+  "out",
+  "has",
+  "have",
+  "had",
+  "been",
+  "from",
+  "this",
+  "that",
+  "with",
+  "they",
+  "which",
+  "their",
+  "will",
+  "each",
+  "make",
+  "like",
+  "just",
+  "over",
+  "such",
+  "than",
+  "them",
+  "very",
+  "some",
+  "what",
+  "about",
+  "into",
+  "more",
+  "other",
+  "then",
+  "these",
+  "when",
+  "where",
+  "how",
+  "does",
+  "also",
+  "after",
+  "should",
+  "would",
+  "could",
+  "being",
+  "there",
+  "before",
+  "between",
+  "those",
+  "through",
+  "while",
+  "using",
+]);
+
+/** Count non-overlapping occurrences of `kw` in `text`. */
+function countOccurrences(text: string, kw: string): number {
+  let count = 0;
+  let pos = text.indexOf(kw, 0);
+  while (pos !== -1) {
+    count++;
+    pos = text.indexOf(kw, pos + kw.length);
+  }
+  return count;
+}
+
+/** Split markdown into paragraphs, score by keyword relevance with objective, return top excerpts. */
 function extractExcerpts(markdown: string, objective: string): string[] {
   const paragraphs = markdown
     .split(/\n{2,}/)
@@ -84,15 +159,45 @@ function extractExcerpts(markdown: string, objective: string): string[] {
   const keywords = objective
     .toLowerCase()
     .split(/\W+/)
-    .filter((w) => w.length > 2);
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
 
   if (keywords.length === 0) return [truncate(markdown)];
 
+  // IDF: keywords that appear in fewer paragraphs are more important
+  const docCount = paragraphs.length;
+  const lowerParagraphs = paragraphs.map((p) => p.toLowerCase());
+  const kwIdf = keywords.map((kw) => {
+    const df = lowerParagraphs.filter((lp) => lp.includes(kw)).length;
+    return df > 0 ? Math.log(docCount / df) + 1 : 0;
+  });
+
   const scored = paragraphs.map((p, index) => {
-    const lower = p.toLowerCase();
-    const score = keywords.reduce((s, kw) => s + (lower.includes(kw) ? 1 : 0), 0);
+    const lower = lowerParagraphs[index]!;
+    const isHeading = p.startsWith("#");
+    const wordCount = lower.split(/\s+/).length || 1;
+
+    // TF-IDF: frequency × inverse document frequency, normalized by paragraph length
+    let score = 0;
+    for (let i = 0; i < keywords.length; i++) {
+      const tf = countOccurrences(lower, keywords[i]!);
+      if (tf > 0) {
+        score += (tf / wordCount) * kwIdf[i]!;
+      }
+    }
+
+    // Boost headings — they signal section relevance
+    if (isHeading && score > 0) score *= 1.5;
+
     return { text: p, score, index };
   });
+
+  // Propagate heading relevance: boost paragraphs immediately after a matching heading
+  for (let i = 1; i < scored.length; i++) {
+    const prev = scored[i - 1]!;
+    if (prev.score > 0 && prev.text.startsWith("#") && scored[i]!.score === 0) {
+      scored[i]!.score = prev.score * 0.3;
+    }
+  }
 
   const matched = scored.filter((s) => s.score > 0);
 
