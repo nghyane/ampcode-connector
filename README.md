@@ -1,12 +1,14 @@
 # ampcode-connector
 
-Stop burning Amp credits. Route [Amp CLI](https://ampcode.com) through your **existing** Claude Code, Codex CLI & Gemini CLI subscriptions — for free.
+Stop burning AmpCode credits. Route [AmpCode](https://ampcode.com) through your **existing** Claude Code, Codex CLI & Gemini CLI subscriptions — for free.
+
+![demo](demo.gif)
 
 ```
-Amp CLI → ampcode-connector → Claude Code      (free)
+AmpCode → ampcode-connector → Claude Code      (free)
                              → OpenAI Codex CLI (free)
                              → Gemini CLI       (free)
-                             → Amp upstream     (paid, last resort)
+                             → AmpCode upstream (paid, last resort)
 ```
 
 ## Supported Providers
@@ -24,7 +26,7 @@ Amp CLI → ampcode-connector → Claude Code      (free)
 Three commands. That's it.
 
 ```bash
-bunx ampcode-connector setup    # point Amp CLI → proxy
+bunx ampcode-connector setup    # point AmpCode → proxy
 bunx ampcode-connector login    # authenticate providers (browser OAuth)
 bunx ampcode-connector          # start proxy
 ```
@@ -64,10 +66,10 @@ Request in → local OAuth available? → yes → forward to provider API (free)
                                     → no  → forward to ampcode.com  (paid)
 
 On 429 → retry with different account/pool
-On 401 → fallback to Amp upstream
+On 401 → fallback to AmpCode upstream
 ```
 
-Non-AI routes (auth, threads, telemetry) pass through to `ampcode.com` transparently — the proxy is invisible to Amp.
+Non-AI routes (auth, threads, telemetry) pass through to `ampcode.com` transparently — the proxy is invisible to AmpCode.
 
 ### Smart Routing
 
