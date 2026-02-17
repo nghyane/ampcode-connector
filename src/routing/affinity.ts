@@ -17,16 +17,35 @@ const TTL_MS = 2 * 3600_000;
 const CLEANUP_INTERVAL_MS = 10 * 60_000;
 
 const map = new Map<string, AffinityEntry>();
+const counts = new Map<string, number>();
 
 function key(threadId: string, ampProvider: string): string {
   return `${threadId}\0${ampProvider}`;
 }
 
+function countKey(pool: QuotaPool, account: number): string {
+  return `${pool}:${account}`;
+}
+
+function incCount(pool: QuotaPool, account: number): void {
+  const k = countKey(pool, account);
+  counts.set(k, (counts.get(k) ?? 0) + 1);
+}
+
+function decCount(pool: QuotaPool, account: number): void {
+  const k = countKey(pool, account);
+  const v = (counts.get(k) ?? 0) - 1;
+  if (v <= 0) counts.delete(k);
+  else counts.set(k, v);
+}
+
 export function get(threadId: string, ampProvider: string): AffinityEntry | undefined {
-  const entry = map.get(key(threadId, ampProvider));
+  const k = key(threadId, ampProvider);
+  const entry = map.get(k);
   if (!entry) return undefined;
   if (Date.now() - entry.assignedAt > TTL_MS) {
-    map.delete(key(threadId, ampProvider));
+    map.delete(k);
+    decCount(entry.pool, entry.account);
     return undefined;
   }
   // Touch: keep affinity alive while thread is active
@@ -35,30 +54,46 @@ export function get(threadId: string, ampProvider: string): AffinityEntry | unde
 }
 
 export function set(threadId: string, ampProvider: string, pool: QuotaPool, account: number): void {
-  map.set(key(threadId, ampProvider), { pool, account, assignedAt: Date.now() });
+  const k = key(threadId, ampProvider);
+  const existing = map.get(k);
+  if (existing) {
+    if (existing.pool !== pool || existing.account !== account) {
+      decCount(existing.pool, existing.account);
+      incCount(pool, account);
+    }
+  } else {
+    incCount(pool, account);
+  }
+  map.set(k, { pool, account, assignedAt: Date.now() });
 }
 
 /** Break affinity when account is exhausted — allow re-routing. */
 export function clear(threadId: string, ampProvider: string): void {
-  map.delete(key(threadId, ampProvider));
+  const k = key(threadId, ampProvider);
+  const existing = map.get(k);
+  if (existing) {
+    decCount(existing.pool, existing.account);
+    map.delete(k);
+  }
 }
 
 /** Count active threads pinned to a specific (pool, account). */
 export function activeCount(pool: QuotaPool, account: number): number {
-  const now = Date.now();
-  let count = 0;
-  for (const entry of map.values()) {
-    if (entry.pool === pool && entry.account === account && now - entry.assignedAt <= TTL_MS) {
-      count++;
-    }
-  }
-  return count;
+  return counts.get(countKey(pool, account)) ?? 0;
 }
 
-/** Periodic cleanup of expired entries. */
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, entry] of map) {
-    if (now - entry.assignedAt > TTL_MS) map.delete(k);
-  }
-}, CLEANUP_INTERVAL_MS);
+let _cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Start periodic cleanup of expired entries. Call once at server startup. */
+export function startCleanup(): void {
+  if (_cleanupTimer) return;
+  _cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [k, entry] of map) {
+      if (now - entry.assignedAt > TTL_MS) {
+        map.delete(k);
+        decCount(entry.pool, entry.account);
+      }
+    }
+  }, CLEANUP_INTERVAL_MS);
+}

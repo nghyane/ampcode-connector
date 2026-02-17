@@ -49,7 +49,7 @@ export function routeRequest(
     const pinned = affinity.get(threadId, ampProvider);
     if (pinned && !cooldown.isExhausted(pinned.pool, pinned.account)) {
       const handler = providerForPool(pinned.pool);
-      if (handler && handler.isAvailable(pinned.account)) {
+      if (handler?.isAvailable(pinned.account)) {
         if (!cooldown.isCoolingDown(pinned.pool, pinned.account)) {
           logger.route(handler.routeDecision, ampProvider, modelStr);
           return result(handler, ampProvider, modelStr, pinned.account, pinned.pool);

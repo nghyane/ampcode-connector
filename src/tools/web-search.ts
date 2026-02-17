@@ -3,6 +3,17 @@
 import Exa from "exa-js";
 import { logger } from "../utils/logger.ts";
 
+let _exa: InstanceType<typeof Exa> | null = null;
+let _exaKey: string | null = null;
+
+function getExa(apiKey: string): InstanceType<typeof Exa> {
+  if (!_exa || _exaKey !== apiKey) {
+    _exa = new Exa(apiKey);
+    _exaKey = apiKey;
+  }
+  return _exa;
+}
+
 export interface SearchParams {
   objective: string;
   searchQueries?: string[];
@@ -24,7 +35,7 @@ export async function handleSearch(params: SearchParams, exaApiKey: string): Pro
   const query = searchQueries?.length ? searchQueries.join(" ") : objective;
 
   try {
-    const exa = new Exa(exaApiKey);
+    const exa = getExa(exaApiKey);
     const response = await exa.search(query, {
       numResults: maxResults,
       type: "auto",

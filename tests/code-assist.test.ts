@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { GoogleGenAI } from "@google/genai";
 import * as store from "../src/auth/store.ts";
 import { provider as antigravity } from "../src/providers/antigravity.ts";
-import { provider as gemini } from "../src/providers/gemini.ts";
+import type { provider as gemini } from "../src/providers/gemini.ts";
 import * as rewriter from "../src/proxy/rewriter.ts";
 import type { ParsedBody } from "../src/server/body.ts";
 import * as path from "../src/utils/path.ts";
@@ -30,12 +30,12 @@ function proxyServer(provider: typeof gemini | typeof antigravity) {
       const sub = path.subpath(pathname);
       const raw = req.method === "POST" ? await req.text() : "";
       const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
-      const model = (parsed && typeof parsed["model"] === "string" ? parsed["model"] : null) ?? path.modelFromUrl(sub);
+      const model = (parsed && typeof parsed.model === "string" ? parsed.model : null) ?? path.modelFromUrl(sub);
       const body: ParsedBody = {
         raw,
         parsed,
         ampModel: model,
-        stream: parsed?.["stream"] === true,
+        stream: parsed?.stream === true,
         forwardBody: raw,
       };
       const rewrite = model ? rewriter.rewrite(model) : undefined;

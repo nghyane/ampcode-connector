@@ -39,8 +39,14 @@ export async function token(config: OAuthConfig, account = 0): Promise<string | 
   try {
     return (await refresh(config, creds.refreshToken, account)).accessToken;
   } catch (err) {
-    logger.error(`Token refresh failed for ${config.providerName}:${account}`, { error: String(err) });
-    return null;
+    logger.warn(`Token refresh failed for ${config.providerName}:${account}, retrying...`, { error: String(err) });
+    try {
+      await Bun.sleep(1000);
+      return (await refresh(config, creds.refreshToken, account)).accessToken;
+    } catch (retryErr) {
+      logger.error(`Token refresh retry failed for ${config.providerName}:${account}`, { error: String(retryErr) });
+      return null;
+    }
   }
 }
 
@@ -54,9 +60,7 @@ export async function tokenFromAny(config: OAuthConfig): Promise<{ accessToken: 
     try {
       const refreshed = await refresh(config, c.refreshToken, account);
       return { accessToken: refreshed.accessToken, account };
-    } catch {
-      continue;
-    }
+    } catch {}
   }
 
   return null;
@@ -102,7 +106,7 @@ export async function login(config: OAuthConfig): Promise<Credentials> {
     redirect_uri: redirectUri,
     code_verifier: verifier,
   };
-  if (config.sendStateInExchange) exchangeParams["state"] = callback.state;
+  if (config.sendStateInExchange) exchangeParams.state = callback.state;
 
   const raw = await exchange(config, exchangeParams);
   let credentials = parseTokenFields(raw, config);
@@ -156,7 +160,7 @@ async function refresh(config: OAuthConfig, refreshToken: string, account = 0): 
 
 async function exchange(config: OAuthConfig, params: Record<string, string>): Promise<Record<string, unknown>> {
   const all: Record<string, string> = { client_id: config.clientId, ...params };
-  if (config.clientSecret) all["client_secret"] = config.clientSecret;
+  if (config.clientSecret) all.client_secret = config.clientSecret;
 
   const isJson = config.bodyFormat === "json";
   const res = await fetch(config.tokenUrl, {

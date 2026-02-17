@@ -41,7 +41,7 @@ function accountIdFromJWT(token: string): string | null {
     if (parts.length < 2 || !parts[1]) return null;
     const payload = JSON.parse(new TextDecoder().decode(fromBase64url(parts[1]))) as Raw;
     const auth = payload["https://api.openai.com/auth"] as Raw | undefined;
-    return (auth?.["chatgpt_account_id"] as string) ?? null;
+    return (auth?.chatgpt_account_id as string) ?? null;
   } catch {
     return null;
   }

@@ -16,7 +16,7 @@ const AMP_SETTINGS_PATHS = [
 ];
 
 function ampSettingsPaths(): string[] {
-  const envPath = process.env["AMP_SETTINGS_FILE"];
+  const envPath = process.env.AMP_SETTINGS_FILE;
   return envPath ? [envPath] : AMP_SETTINGS_PATHS;
 }
 
@@ -31,11 +31,11 @@ function readJson(path: string): Record<string, unknown> {
 
 function writeJson(path: string, data: Record<string, unknown>): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf-8");
+  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
 }
 
 function findAmpApiKey(proxyUrl: string): string | undefined {
-  if (process.env["AMP_API_KEY"]) return process.env["AMP_API_KEY"];
+  if (process.env.AMP_API_KEY) return process.env.AMP_API_KEY;
 
   const secrets = readJson(AMP_SECRETS_PATH);
   const exact = secrets[`apiKey@${proxyUrl}`];
@@ -102,7 +102,7 @@ export async function setup(): Promise<void> {
 
   if (existingKey) {
     saveAmpApiKey(existingKey, proxyUrl);
-    const preview = existingKey.slice(0, 10) + "...";
+    const preview = `${existingKey.slice(0, 10)}...`;
     line(`${s.green}ok${s.reset} Amp token found  ${s.dim}${preview}${s.reset}`);
   } else {
     line();

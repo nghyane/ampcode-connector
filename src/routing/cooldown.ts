@@ -11,8 +11,6 @@ interface CooldownEntry {
   consecutive429: number;
 }
 
-/** Consecutive 429s within this window count toward exhaustion detection. */
-const CONSECUTIVE_WINDOW_MS = 2 * 60_000;
 /** When detected as exhausted, cooldown for this long. */
 const EXHAUSTED_COOLDOWN_MS = 2 * 3600_000;
 /** Retry-After threshold (seconds) above which we consider quota exhausted. */
@@ -29,20 +27,22 @@ function key(pool: QuotaPool, account: number): string {
 }
 
 export function isCoolingDown(pool: QuotaPool, account: number): boolean {
-  const entry = entries.get(key(pool, account));
+  const k = key(pool, account);
+  const entry = entries.get(k);
   if (!entry) return false;
   if (Date.now() >= entry.until) {
-    entries.delete(key(pool, account));
+    entries.delete(k);
     return false;
   }
   return true;
 }
 
 export function isExhausted(pool: QuotaPool, account: number): boolean {
-  const entry = entries.get(key(pool, account));
+  const k = key(pool, account);
+  const entry = entries.get(k);
   if (!entry) return false;
   if (Date.now() >= entry.until) {
-    entries.delete(key(pool, account));
+    entries.delete(k);
     return false;
   }
   return entry.exhausted;

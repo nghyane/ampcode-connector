@@ -58,7 +58,7 @@ function getAccountId(accessToken: string, account: number): string | undefined 
     if (parts.length < 2 || !parts[1]) return undefined;
     const payload = JSON.parse(new TextDecoder().decode(fromBase64url(parts[1]))) as Record<string, unknown>;
     const auth = payload["https://api.openai.com/auth"] as Record<string, unknown> | undefined;
-    return (auth?.["chatgpt_account_id"] as string) ?? undefined;
+    return (auth?.chatgpt_account_id as string) ?? undefined;
   } catch {
     return undefined;
   }

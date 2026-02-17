@@ -1,7 +1,7 @@
-/** Request body — parsed once, carried through the entire pipeline.
+/** Request body — lazy parsing with regex fast path.
  *  Fast path: regex extracts model + stream flag without JSON.parse.
- *  Slow path: full parse only when Google providers need the parsed object (CCA wrapping)
- *  or when model rewrite is needed (-api-preview). */
+ *  Slow path: full JSON.parse only when .parsed or .forwardBody is accessed
+ *  (e.g. Google CCA wrapping, model rewrite). */
 
 import { resolveModel, rewriteBodyModel } from "../routing/models.ts";
 import * as path from "../utils/path.ts";
@@ -19,11 +19,18 @@ export interface ParsedBody {
   readonly parsed: Record<string, unknown> | null;
 }
 
-/** Parse request body — JSON.parse for reliable model + stream extraction.
- *  Parsed object is cached and reused by forwardBody and Google CCA wrapping. */
+/** Fast-path regex to extract "model" and "stream" without JSON.parse. */
+const MODEL_RE = /"model"\s*:\s*"([^"]+)"/;
+const STREAM_RE = /"stream"\s*:\s*true\b/;
+
 export function parseBody(raw: string, sub: string): ParsedBody {
   const fallbackModel = path.modelFromUrl(sub);
   if (!raw) return { raw, parsed: null, ampModel: fallbackModel, stream: false, forwardBody: raw };
+
+  const ampModel = raw.match(MODEL_RE)?.[1] ?? fallbackModel;
+  const stream = STREAM_RE.test(raw);
+  const providerModel = ampModel ? resolveModel(ampModel) : null;
+  const needsRewrite = !!(ampModel && providerModel && providerModel !== ampModel);
 
   let _parsed: Record<string, unknown> | null | undefined;
   function ensureParsed(): Record<string, unknown> | null {
@@ -36,12 +43,6 @@ export function parseBody(raw: string, sub: string): ParsedBody {
     }
     return _parsed;
   }
-
-  const parsed = ensureParsed();
-  const ampModel = (typeof parsed?.model === "string" ? parsed.model : null) ?? fallbackModel;
-  const stream = parsed?.stream === true;
-  const providerModel = ampModel ? resolveModel(ampModel) : null;
-  const needsRewrite = !!(ampModel && providerModel && providerModel !== ampModel);
 
   let _forwardBody: string | undefined;
   function ensureForwardBody(): string {

@@ -55,6 +55,6 @@ export function maybeWrap(
   opts: { userAgent: "antigravity" | "pi-coding-agent"; requestIdPrefix: "agent" | "pi"; requestType?: "agent" },
 ): string {
   if (!parsed) return raw;
-  if (parsed["project"]) return raw;
+  if (parsed.project) return raw;
   return wrapRequest({ projectId, model, body: parsed, ...opts });
 }

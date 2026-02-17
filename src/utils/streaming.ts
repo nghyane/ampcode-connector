@@ -24,7 +24,7 @@ export function parse(raw: string): Chunk[] {
         chunk.id = line.slice(3).trim();
       } else if (line.startsWith("retry:")) {
         const val = parseInt(line.slice(6).trim(), 10);
-        if (!isNaN(val)) chunk.retry = val;
+        if (!Number.isNaN(val)) chunk.retry = val;
       }
     }
 

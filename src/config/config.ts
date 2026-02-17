@@ -36,18 +36,18 @@ const SECRETS_PATH = join(homedir(), ".local", "share", "amp", "secrets.json");
 export async function loadConfig(): Promise<ProxyConfig> {
   const file = await readConfigFile();
   const apiKey = await resolveApiKey(file);
-  const providers = asRecord(file?.["providers"]);
+  const providers = asRecord(file?.providers);
 
   return {
-    port: asNumber(file?.["port"]) ?? DEFAULTS.port,
-    ampUpstreamUrl: asString(file?.["ampUpstreamUrl"]) ?? DEFAULTS.ampUpstreamUrl,
+    port: asNumber(file?.port) ?? DEFAULTS.port,
+    ampUpstreamUrl: asString(file?.ampUpstreamUrl) ?? DEFAULTS.ampUpstreamUrl,
     ampApiKey: apiKey,
-    exaApiKey: asString(file?.["exaApiKey"]) ?? process.env["EXA_API_KEY"],
-    logLevel: asLogLevel(file?.["logLevel"]) ?? DEFAULTS.logLevel,
+    exaApiKey: asString(file?.exaApiKey) ?? process.env.EXA_API_KEY,
+    logLevel: asLogLevel(file?.logLevel) ?? DEFAULTS.logLevel,
     providers: {
-      anthropic: asBool(providers?.["anthropic"]) ?? DEFAULTS.providers.anthropic,
-      codex: asBool(providers?.["codex"]) ?? DEFAULTS.providers.codex,
-      google: asBool(providers?.["google"]) ?? DEFAULTS.providers.google,
+      anthropic: asBool(providers?.anthropic) ?? DEFAULTS.providers.anthropic,
+      codex: asBool(providers?.codex) ?? DEFAULTS.providers.codex,
+      google: asBool(providers?.google) ?? DEFAULTS.providers.google,
     },
   };
 }
@@ -70,10 +70,10 @@ async function readConfigFile(): Promise<Record<string, unknown> | null> {
 
 /** Amp API key resolution: config file → AMP_API_KEY env → secrets.json */
 async function resolveApiKey(file: Record<string, unknown> | null): Promise<string | undefined> {
-  const fromFile = asString(file?.["ampApiKey"]);
+  const fromFile = asString(file?.ampApiKey);
   if (fromFile) return fromFile;
 
-  const fromEnv = process.env["AMP_API_KEY"];
+  const fromEnv = process.env.AMP_API_KEY;
   if (fromEnv) return fromEnv;
 
   return readSecretsFile();
@@ -101,7 +101,7 @@ function asRecord(v: unknown): Record<string, unknown> | undefined {
 }
 
 function asNumber(v: unknown): number | undefined {
-  return typeof v === "number" && !isNaN(v) ? v : undefined;
+  return typeof v === "number" && !Number.isNaN(v) ? v : undefined;
 }
 
 function asString(v: unknown): string | undefined {

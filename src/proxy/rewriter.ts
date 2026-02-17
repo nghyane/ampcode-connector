@@ -7,6 +7,9 @@
 
 import { modelFieldPaths } from "../constants.ts";
 
+/** Pre-split field paths — avoids .split(".") on every SSE chunk. */
+const MODEL_FIELD_PARTS = modelFieldPaths.map((p) => p.split("."));
+
 export function rewrite(originalModel: string): (data: string) => string {
   return (data: string) => {
     if (data === "[DONE]") return data;
@@ -15,10 +18,10 @@ export function rewrite(originalModel: string): (data: string) => string {
       const parsed = JSON.parse(data) as Record<string, unknown>;
       let modified = false;
 
-      for (const path of modelFieldPaths) {
-        const current = getField(parsed, path);
+      for (const parts of MODEL_FIELD_PARTS) {
+        const current = getField(parsed, parts);
         if (current !== undefined && current !== originalModel) {
-          setField(parsed, path, originalModel);
+          setField(parsed, parts, originalModel);
           modified = true;
         }
       }
@@ -32,8 +35,7 @@ export function rewrite(originalModel: string): (data: string) => string {
   };
 }
 
-function getField(obj: Record<string, unknown>, path: string): unknown {
-  const parts = path.split(".");
+function getField(obj: Record<string, unknown>, parts: string[]): unknown {
   let current: unknown = obj;
   for (const part of parts) {
     if (current == null || typeof current !== "object") return undefined;
@@ -42,8 +44,7 @@ function getField(obj: Record<string, unknown>, path: string): unknown {
   return current;
 }
 
-function setField(obj: Record<string, unknown>, path: string, value: unknown): void {
-  const parts = path.split(".");
+function setField(obj: Record<string, unknown>, parts: string[], value: unknown): void {
   let current: unknown = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     if (current == null || typeof current !== "object") return;
@@ -55,15 +56,15 @@ function setField(obj: Record<string, unknown>, path: string, value: unknown): v
 }
 
 function suppressThinking(data: Record<string, unknown>): boolean {
-  const content = data["content"];
+  const content = data.content;
   if (!Array.isArray(content)) return false;
 
-  const hasToolUse = content.some((b: Record<string, unknown>) => b["type"] === "tool_use");
+  const hasToolUse = content.some((b: Record<string, unknown>) => b.type === "tool_use");
   if (!hasToolUse) return false;
 
-  const hasThinking = content.some((b: Record<string, unknown>) => b["type"] === "thinking");
+  const hasThinking = content.some((b: Record<string, unknown>) => b.type === "thinking");
   if (!hasThinking) return false;
 
-  data["content"] = content.filter((b: Record<string, unknown>) => b["type"] !== "thinking");
+  data.content = content.filter((b: Record<string, unknown>) => b.type !== "thinking");
   return true;
 }
