@@ -21,6 +21,48 @@ import * as affinity from "./affinity.ts";
 import type { QuotaPool } from "./cooldown.ts";
 import * as cooldown from "./cooldown.ts";
 
+interface ProviderEntry {
+  provider: Provider;
+  pool: QuotaPool;
+  credentialName: ProviderName;
+}
+
+/** Maps ampProvider name → list of provider entries (checked against config at lookup time). */
+const PROVIDER_REGISTRY = new Map<string, { configKey: keyof ProxyConfig["providers"]; entries: ProviderEntry[] }>([
+  [
+    "anthropic",
+    {
+      configKey: "anthropic",
+      entries: [{ provider: anthropic, pool: "anthropic", credentialName: "anthropic" }],
+    },
+  ],
+  [
+    "openai",
+    {
+      configKey: "codex",
+      entries: [{ provider: codex, pool: "codex", credentialName: "codex" }],
+    },
+  ],
+  [
+    "google",
+    {
+      configKey: "google",
+      entries: [
+        { provider: gemini, pool: "gemini", credentialName: "google" },
+        { provider: antigravity, pool: "antigravity", credentialName: "google" },
+      ],
+    },
+  ],
+]);
+
+/** Reverse map: QuotaPool → Provider (built once at module init). */
+const POOL_TO_PROVIDER = new Map<QuotaPool, Provider>();
+for (const [, { entries }] of PROVIDER_REGISTRY) {
+  for (const entry of entries) {
+    POOL_TO_PROVIDER.set(entry.pool, entry.provider);
+  }
+}
+
 export interface RouteResult {
   decision: RouteDecision;
   provider: string;
@@ -116,30 +158,13 @@ export function recordSuccess(pool: QuotaPool, account: number): void {
 }
 
 function buildCandidates(ampProvider: string, config: ProxyConfig): Candidate[] {
+  const reg = PROVIDER_REGISTRY.get(ampProvider);
+  if (!reg || !config.providers[reg.configKey]) return [];
+
   const candidates: Candidate[] = [];
-
-  switch (ampProvider) {
-    case "anthropic":
-      if (config.providers.anthropic) {
-        addAccountCandidates(candidates, anthropic, "anthropic", "anthropic");
-      }
-      break;
-
-    case "openai":
-      if (config.providers.codex) {
-        addAccountCandidates(candidates, codex, "codex", "codex");
-      }
-      break;
-
-    case "google":
-      if (config.providers.google) {
-        // Both gemini and antigravity use "google" credentials — separate quota pools
-        addAccountCandidates(candidates, gemini, "gemini", "google");
-        addAccountCandidates(candidates, antigravity, "antigravity", "google");
-      }
-      break;
+  for (const entry of reg.entries) {
+    addAccountCandidates(candidates, entry.provider, entry.pool, entry.credentialName);
   }
-
   return candidates;
 }
 
@@ -177,16 +202,7 @@ function pickCandidate(candidates: Candidate[]): Candidate | null {
 }
 
 function providerForPool(pool: QuotaPool): Provider | null {
-  switch (pool) {
-    case "anthropic":
-      return anthropic;
-    case "codex":
-      return codex;
-    case "gemini":
-      return gemini;
-    case "antigravity":
-      return antigravity;
-  }
+  return POOL_TO_PROVIDER.get(pool) ?? null;
 }
 
 function result(

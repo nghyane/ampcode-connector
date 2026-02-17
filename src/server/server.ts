@@ -4,17 +4,13 @@ import type { ProxyConfig } from "../config/config.ts";
 import * as rewriter from "../proxy/rewriter.ts";
 import * as upstream from "../proxy/upstream.ts";
 import { startCleanup } from "../routing/affinity.ts";
-import { parseRetryAfter, record429 } from "../routing/cooldown.ts";
-import { type RouteResult, recordSuccess, rerouteAfter429, routeRequest } from "../routing/router.ts";
+import { tryReroute, tryWithCachePreserve } from "../routing/retry.ts";
+import { recordSuccess, routeRequest } from "../routing/router.ts";
 import { handleInternal, isLocalMethod } from "../tools/internal.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
+import { record, snapshot } from "../utils/stats.ts";
 import { type ParsedBody, parseBody } from "./body.ts";
-
-/** Max 429-reroute attempts before falling back to upstream. */
-const MAX_REROUTE_ATTEMPTS = 4;
-/** Max seconds to wait-and-retry on the same account (preserves prompt cache). */
-const CACHE_PRESERVE_WAIT_MAX_S = 10;
 
 export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
   const server = Bun.serve({
@@ -87,6 +83,7 @@ async function handleProvider(
   pathname: string,
   config: ProxyConfig,
 ): Promise<Response> {
+  const startTime = Date.now();
   const sub = path.subpath(pathname);
   const threadId = req.headers.get("x-amp-thread-id") ?? undefined;
 
@@ -99,107 +96,52 @@ async function handleProvider(
     `ROUTE ${route.decision} provider=${providerName} model=${ampModel ?? "?"} account=${route.account} sub=${sub}`,
   );
 
+  let response: Response;
+
   if (route.handler) {
     const rewrite = ampModel ? rewriter.rewrite(ampModel) : undefined;
-    const response = await route.handler.forward(sub, body, req.headers, rewrite, route.account);
+    const handlerResponse = await route.handler.forward(sub, body, req.headers, rewrite, route.account);
 
-    if (response.status === 429 && route.pool) {
-      const cached = await tryWithCachePreserve(route, sub, body, req.headers, rewrite, response);
-      if (cached) return cached;
-
-      const rerouted = await tryReroute(
-        providerName,
-        ampModel,
-        config,
-        route,
-        sub,
-        body,
-        req.headers,
-        rewrite,
-        response,
-        threadId,
-      );
-      if (rerouted) return rerouted;
-    } else if (response.status === 401) {
+    if (handlerResponse.status === 429 && route.pool) {
+      const cached = await tryWithCachePreserve(route, sub, body, req.headers, rewrite, handlerResponse);
+      if (cached) {
+        response = cached;
+      } else {
+        const rerouted = await tryReroute(
+          providerName,
+          ampModel,
+          config,
+          route,
+          sub,
+          body,
+          req.headers,
+          rewrite,
+          handlerResponse,
+          threadId,
+        );
+        response = rerouted ?? (await fallbackUpstream(req, body, config));
+      }
+    } else if (handlerResponse.status === 401) {
       logger.debug("Local provider denied, falling back to upstream");
+      response = await fallbackUpstream(req, body, config);
     } else {
       if (route.pool) recordSuccess(route.pool, route.account);
-      return response;
+      response = handlerResponse;
     }
+  } else {
+    response = await fallbackUpstream(req, body, config);
   }
 
-  return fallbackUpstream(req, body, config);
-}
+  record({
+    timestamp: new Date().toISOString(),
+    route: route.decision,
+    provider: providerName,
+    model: ampModel ?? "unknown",
+    statusCode: response.status,
+    durationMs: Date.now() - startTime,
+  });
 
-/** Wait briefly and retry on the same account to preserve prompt cache. */
-async function tryWithCachePreserve(
-  route: RouteResult,
-  sub: string,
-  body: ParsedBody,
-  headers: Headers,
-  rewrite: ((data: string) => string) | undefined,
-  initialResponse: Response,
-): Promise<Response | null> {
-  const retryAfter = parseRetryAfter(initialResponse.headers.get("retry-after"));
-  if (retryAfter === undefined || retryAfter > CACHE_PRESERVE_WAIT_MAX_S) return null;
-
-  logger.debug(`Waiting ${retryAfter}s to preserve prompt cache on account=${route.account}`);
-  await Bun.sleep(retryAfter * 1000);
-  const response = await route.handler!.forward(sub, body, headers, rewrite, route.account);
-
-  if (response.status !== 429 && response.status !== 401) {
-    recordSuccess(route.pool!, route.account);
-    return response;
-  }
-  if (response.status === 429) {
-    const nextRetryAfter = parseRetryAfter(response.headers.get("retry-after"));
-    record429(route.pool!, route.account, nextRetryAfter);
-  }
-  return null;
-}
-
-/** Reroute to different accounts/pools after 429 (cache loss accepted). */
-async function tryReroute(
-  providerName: string,
-  ampModel: string | null,
-  config: ProxyConfig,
-  initialRoute: RouteResult,
-  sub: string,
-  body: ParsedBody,
-  headers: Headers,
-  rewrite: ((data: string) => string) | undefined,
-  initialResponse: Response,
-  threadId?: string,
-): Promise<Response | null> {
-  const retryAfter = parseRetryAfter(initialResponse.headers.get("retry-after"));
-  logger.warn(`429 from ${initialRoute.decision} account=${initialRoute.account}`, { retryAfter });
-
-  let currentPool = initialRoute.pool!;
-  let currentAccount = initialRoute.account;
-
-  for (let attempt = 0; attempt < MAX_REROUTE_ATTEMPTS; attempt++) {
-    const next = rerouteAfter429(providerName, ampModel, config, currentPool, currentAccount, retryAfter, threadId);
-    if (!next) break;
-
-    logger.info(`REROUTE -> ${next.decision} account=${next.account}`);
-    const response = await next.handler!.forward(sub, body, headers, rewrite, next.account);
-
-    if (response.status === 429 && next.pool) {
-      const nextRetryAfter = parseRetryAfter(response.headers.get("retry-after"));
-      record429(next.pool, next.account, nextRetryAfter);
-      currentPool = next.pool;
-      currentAccount = next.account;
-      continue;
-    }
-
-    if (response.status !== 401) {
-      if (next.pool) recordSuccess(next.pool, next.account);
-      return response;
-    }
-    break;
-  }
-
-  return null;
+  return response;
 }
 
 /** Fall back to Amp upstream when local providers fail. */
@@ -221,6 +163,7 @@ function healthCheck(config: ProxyConfig): Response {
         port: config.port,
         upstream: config.ampUpstreamUrl,
         providers: config.providers,
+        stats: snapshot(),
       },
       null,
       2,

@@ -1,13 +1,15 @@
 #!/usr/bin/env bun
 /** ampcode-connector entry point. */
 
+import { startAutoRefresh } from "./auth/auto-refresh.ts";
 import * as configs from "./auth/configs.ts";
 import type { OAuthConfig } from "./auth/oauth.ts";
 import * as oauth from "./auth/oauth.ts";
 import { line, s } from "./cli/ansi.ts";
 import { setup } from "./cli/setup.ts";
+import * as status from "./cli/status.ts";
 import { dashboard } from "./cli/tui.ts";
-import { loadConfig } from "./config/config.ts";
+import { loadConfig, type ProxyConfig } from "./config/config.ts";
 import { startServer } from "./server/server.ts";
 import { logger, setLogLevel } from "./utils/logger.ts";
 
@@ -42,10 +44,34 @@ async function main(): Promise<void> {
   const config = await loadConfig();
   setLogLevel(config.logLevel);
   startServer(config);
+  startAutoRefresh();
+  banner(config);
 
   // Non-blocking update check — runs in background after server starts
   const { checkForUpdates } = await import("./utils/update-check.ts");
   checkForUpdates();
+}
+
+function banner(config: ProxyConfig): void {
+  const providers = status.all();
+  const upstream = config.ampUpstreamUrl.replace(/^https?:\/\//, "");
+
+  line();
+  line(`  ${s.bold}ampcode-connector${s.reset}`);
+  line(`  ${s.dim}http://localhost:${config.port}${s.reset}`);
+  line();
+
+  for (const p of providers) {
+    const count = p.accounts.length;
+    const label = p.label.padEnd(16);
+    const countStr = count > 0 ? `${count} account${count > 1 ? "s" : ""}` : "--";
+    const dot = count > 0 ? `${s.green}●${s.reset}` : `${s.dim}○${s.reset}`;
+    line(`  ${label}  ${countStr.padEnd(12)}${dot}`);
+  }
+
+  line();
+  line(`  ${s.dim}upstream → ${upstream}${s.reset}`);
+  line();
 }
 
 function usage(): void {

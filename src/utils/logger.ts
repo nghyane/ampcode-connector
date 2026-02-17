@@ -23,6 +23,34 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   error: 3,
 };
 
+const isTTY = !!process.stdout.isTTY;
+
+const RESET = "\x1b[0m";
+const DIM = "\x1b[2m";
+const GREEN = "\x1b[32m";
+const YELLOW = "\x1b[33m";
+const RED = "\x1b[31m";
+
+const LEVEL_COLORS: Record<LogLevel, string> = {
+  debug: DIM,
+  info: "",
+  warn: YELLOW,
+  error: RED,
+};
+
+const ROUTE_COLORS: Record<RouteDecision, string> = {
+  LOCAL_CLAUDE: GREEN,
+  LOCAL_CODEX: GREEN,
+  LOCAL_GEMINI: GREEN,
+  LOCAL_ANTIGRAVITY: GREEN,
+  AMP_UPSTREAM: YELLOW,
+};
+
+function colorize(text: string, color: string): string {
+  if (!isTTY || !color) return text;
+  return `${color}${text}${RESET}`;
+}
+
 let currentLevel: LogLevel = "info";
 
 export function setLogLevel(level: LogLevel): void {
@@ -36,8 +64,9 @@ function shouldLog(level: LogLevel): boolean {
 function format(entry: LogEntry): string {
   const { timestamp, level, message, route, provider, model, duration, error } = entry;
 
-  let line = `${timestamp} [${level.toUpperCase().padEnd(5)}] ${message}`;
-  if (route) line += ` route=${route}`;
+  const tag = colorize(`[${level.toUpperCase().padEnd(5)}]`, LEVEL_COLORS[level]);
+  let line = `${timestamp} ${tag} ${message}`;
+  if (route) line += ` route=${colorize(route, ROUTE_COLORS[route])}`;
   if (provider) line += ` provider=${provider}`;
   if (model) line += ` model=${model}`;
   if (duration !== undefined) line += ` duration=${duration}ms`;
