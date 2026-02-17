@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 /** ampcode-connector entry point. */
 
 import * as configs from "./auth/configs.ts";
