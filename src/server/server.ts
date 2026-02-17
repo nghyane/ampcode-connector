@@ -5,6 +5,7 @@ import * as rewriter from "../proxy/rewriter.ts";
 import * as upstream from "../proxy/upstream.ts";
 import { parseRetryAfter, record429 } from "../routing/cooldown.ts";
 import { recordSuccess, rerouteAfter429, routeRequest } from "../routing/router.ts";
+import { handleInternal, isLocalMethod } from "../tools/internal.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
 import { parseBody } from "./body.ts";
@@ -53,6 +54,12 @@ async function handle(req: Request, config: ProxyConfig): Promise<Response> {
   }
 
   if (path.passthrough(pathname)) {
+    if (pathname.startsWith("/api/internal")) {
+      const search = new URL(req.url).search;
+      if (isLocalMethod(search)) {
+        return handleInternal(req, search, config);
+      }
+    }
     return upstream.forward(req, config.ampUpstreamUrl, config.ampApiKey);
   }
 

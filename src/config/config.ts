@@ -10,6 +10,7 @@ export interface ProxyConfig {
   port: number;
   ampUpstreamUrl: string;
   ampApiKey?: string;
+  exaApiKey?: string;
   logLevel: LogLevel;
   providers: {
     anthropic: boolean;
@@ -25,7 +26,11 @@ const DEFAULTS: ProxyConfig = {
   providers: { anthropic: true, codex: true, google: true },
 };
 
-const CONFIG_PATH = join(process.cwd(), "config.yaml");
+/** Config search order: cwd → ~/.config/ampcode-connector */
+const CONFIG_PATHS = [
+  join(process.cwd(), "config.yaml"),
+  join(homedir(), ".config", "ampcode-connector", "config.yaml"),
+];
 const SECRETS_PATH = join(homedir(), ".local", "share", "amp", "secrets.json");
 
 export async function loadConfig(): Promise<ProxyConfig> {
@@ -37,6 +42,7 @@ export async function loadConfig(): Promise<ProxyConfig> {
     port: asNumber(file?.["port"]) ?? DEFAULTS.port,
     ampUpstreamUrl: asString(file?.["ampUpstreamUrl"]) ?? DEFAULTS.ampUpstreamUrl,
     ampApiKey: apiKey,
+    exaApiKey: asString(file?.["exaApiKey"]) ?? process.env["EXA_API_KEY"],
     logLevel: asLogLevel(file?.["logLevel"]) ?? DEFAULTS.logLevel,
     providers: {
       anthropic: asBool(providers?.["anthropic"]) ?? DEFAULTS.providers.anthropic,
@@ -47,14 +53,19 @@ export async function loadConfig(): Promise<ProxyConfig> {
 }
 
 async function readConfigFile(): Promise<Record<string, unknown> | null> {
-  const file = Bun.file(CONFIG_PATH);
-  if (!(await file.exists())) return null;
-  try {
-    const text = await file.text();
-    return Bun.YAML.parse(text) as Record<string, unknown>;
-  } catch (err) {
-    throw new Error(`Invalid config.yaml: ${err}`);
+  for (const configPath of CONFIG_PATHS) {
+    const file = Bun.file(configPath);
+    if (await file.exists()) {
+      try {
+        const text = await file.text();
+        logger.info(`Loaded config from ${configPath}`);
+        return Bun.YAML.parse(text) as Record<string, unknown>;
+      } catch (err) {
+        throw new Error(`Invalid config at ${configPath}: ${err}`);
+      }
+    }
   }
+  return null;
 }
 
 /** Amp API key resolution: config file → AMP_API_KEY env → secrets.json */

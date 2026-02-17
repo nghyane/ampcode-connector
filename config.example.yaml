@@ -1,0 +1,14 @@
+# ampcode-connector configuration
+# Copy to ./config.yaml or ~/.config/ampcode-connector/config.yaml
+
+port: 8765
+logLevel: info
+
+# ampUpstreamUrl: https://ampcode.com
+# ampApiKey: ...          # or AMP_API_KEY env
+# exaApiKey: ...          # or EXA_API_KEY env (for web_search)
+
+providers:
+  anthropic: true
+  codex: true
+  google: true
