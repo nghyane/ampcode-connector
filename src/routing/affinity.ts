@@ -1,5 +1,7 @@
-/** Thread → (quotaPool, account) affinity map.
- *  Ensures a thread sticks to the same account for session consistency. */
+/** Thread+provider → (quotaPool, account) affinity map.
+ *  Ensures a thread sticks to the same account per provider for session consistency.
+ *  Key is composite (threadId, ampProvider) so a single thread can hold
+ *  independent affinities for different providers (e.g. anthropic AND google). */
 
 import type { QuotaPool } from "./cooldown.ts";
 
@@ -16,23 +18,29 @@ const CLEANUP_INTERVAL_MS = 10 * 60_000;
 
 const map = new Map<string, AffinityEntry>();
 
-export function get(threadId: string): AffinityEntry | undefined {
-  const entry = map.get(threadId);
+function key(threadId: string, ampProvider: string): string {
+  return `${threadId}\0${ampProvider}`;
+}
+
+export function get(threadId: string, ampProvider: string): AffinityEntry | undefined {
+  const entry = map.get(key(threadId, ampProvider));
   if (!entry) return undefined;
   if (Date.now() - entry.assignedAt > TTL_MS) {
-    map.delete(threadId);
+    map.delete(key(threadId, ampProvider));
     return undefined;
   }
+  // Touch: keep affinity alive while thread is active
+  entry.assignedAt = Date.now();
   return entry;
 }
 
-export function set(threadId: string, pool: QuotaPool, account: number): void {
-  map.set(threadId, { pool, account, assignedAt: Date.now() });
+export function set(threadId: string, ampProvider: string, pool: QuotaPool, account: number): void {
+  map.set(key(threadId, ampProvider), { pool, account, assignedAt: Date.now() });
 }
 
 /** Break affinity when account is exhausted — allow re-routing. */
-export function clear(threadId: string): void {
-  map.delete(threadId);
+export function clear(threadId: string, ampProvider: string): void {
+  map.delete(key(threadId, ampProvider));
 }
 
 /** Count active threads pinned to a specific (pool, account). */
@@ -50,7 +58,7 @@ export function activeCount(pool: QuotaPool, account: number): number {
 /** Periodic cleanup of expired entries. */
 setInterval(() => {
   const now = Date.now();
-  for (const [threadId, entry] of map) {
-    if (now - entry.assignedAt > TTL_MS) map.delete(threadId);
+  for (const [k, entry] of map) {
+    if (now - entry.assignedAt > TTL_MS) map.delete(k);
   }
 }, CLEANUP_INTERVAL_MS);

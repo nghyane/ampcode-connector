@@ -44,9 +44,9 @@ export function routeRequest(
 ): RouteResult {
   const modelStr = model ?? "unknown";
 
-  // Check thread affinity first
+  // Check thread affinity (keyed by threadId + ampProvider)
   if (threadId) {
-    const pinned = affinity.get(threadId);
+    const pinned = affinity.get(threadId, ampProvider);
     if (pinned && !cooldown.isExhausted(pinned.pool, pinned.account)) {
       const handler = providerForPool(pinned.pool);
       if (handler && handler.isAvailable(pinned.account)) {
@@ -58,7 +58,7 @@ export function routeRequest(
       }
     }
     // Affinity broken (exhausted / unavailable) — clear and re-route
-    if (pinned) affinity.clear(threadId);
+    if (pinned) affinity.clear(threadId, ampProvider);
   }
 
   // Build candidate list
@@ -76,7 +76,7 @@ export function routeRequest(
   }
 
   // Pin thread affinity
-  if (threadId) affinity.set(threadId, picked.pool, picked.account);
+  if (threadId) affinity.set(threadId, ampProvider, picked.pool, picked.account);
 
   logger.route(picked.provider.routeDecision, ampProvider, modelStr);
   return result(picked.provider, ampProvider, modelStr, picked.account, picked.pool);
@@ -96,7 +96,7 @@ export function rerouteAfter429(
 
   // If exhausted, break thread affinity
   if (threadId && cooldown.isExhausted(failedPool, failedAccount)) {
-    affinity.clear(threadId);
+    affinity.clear(threadId, ampProvider);
   }
 
   const modelStr = model ?? "unknown";
@@ -105,7 +105,7 @@ export function rerouteAfter429(
 
   if (!picked) return null;
 
-  if (threadId) affinity.set(threadId, picked.pool, picked.account);
+  if (threadId) affinity.set(threadId, ampProvider, picked.pool, picked.account);
   logger.route(picked.provider.routeDecision, ampProvider, modelStr);
   return result(picked.provider, ampProvider, modelStr, picked.account, picked.pool);
 }

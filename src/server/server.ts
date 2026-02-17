@@ -10,6 +10,8 @@ import * as path from "../utils/path.ts";
 
 /** Max 429-reroute attempts before falling back to upstream. */
 const MAX_REROUTE_ATTEMPTS = 4;
+/** Max seconds to wait-and-retry on the same account (preserves prompt cache). */
+const CACHE_PRESERVE_WAIT_MAX_S = 10;
 
 export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
   const server = Bun.serve({
@@ -74,17 +76,37 @@ async function handleProvider(
   const model = path.model(body) ?? path.modelFromUrl(sub);
   let route = routeRequest(providerName, model, config, threadId);
 
-  logger.info(`ROUTE ${route.decision} provider=${providerName} model=${model ?? "?"} account=${route.account} sub=${sub}`);
+  logger.info(
+    `ROUTE ${route.decision} provider=${providerName} model=${model ?? "?"} account=${route.account} sub=${sub}`,
+  );
 
   if (route.handler) {
     const rewrite = model ? rewriter.rewrite(model) : undefined;
     const response = await route.handler.forward(sub, body, req.headers, rewrite, route.account);
 
-    // 429 → attempt reroute to different account/pool
+    // 429 → try to preserve prompt cache by waiting briefly on same account,
+    // then fall back to rerouting to a different account/pool.
     if (response.status === 429 && route.pool) {
       const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
       logger.warn(`429 from ${route.decision} account=${route.account}`, { retryAfter });
 
+      // Short burst: wait and retry same account to preserve prompt cache
+      if (retryAfter !== undefined && retryAfter <= CACHE_PRESERVE_WAIT_MAX_S) {
+        logger.debug(`Waiting ${retryAfter}s to preserve prompt cache on account=${route.account}`);
+        await Bun.sleep(retryAfter * 1000);
+        const retryResponse = await route.handler.forward(sub, body, req.headers, rewrite, route.account);
+        if (retryResponse.status !== 429 && retryResponse.status !== 401) {
+          recordSuccess(route.pool, route.account);
+          return retryResponse;
+        }
+        // Still failing — fall through to reroute
+        if (retryResponse.status === 429) {
+          const nextRetryAfter = parseRetryAfter(retryResponse.headers.get("retry-after"));
+          record429(route.pool, route.account, nextRetryAfter);
+        }
+      }
+
+      // Reroute to different account/pool (cache loss accepted)
       for (let attempt = 0; attempt < MAX_REROUTE_ATTEMPTS; attempt++) {
         const next = rerouteAfter429(providerName, model, config, route.pool, route.account, retryAfter, threadId);
         if (!next) break;
