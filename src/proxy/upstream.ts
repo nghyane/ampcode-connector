@@ -33,9 +33,6 @@ export async function forward(request: Request, ampUpstreamUrl: string, ampApiKe
     });
   } catch (err) {
     logger.error("Upstream proxy error", { error: String(err) });
-    return new Response(JSON.stringify({ error: "Failed to connect to Amp upstream", details: String(err) }), {
-      status: 502,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({ error: "Failed to connect to Amp upstream", details: String(err) }, { status: 502 });
   }
 }

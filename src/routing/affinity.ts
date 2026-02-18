@@ -82,7 +82,7 @@ export function activeCount(pool: QuotaPool, account: number): number {
   return counts.get(countKey(pool, account)) ?? 0;
 }
 
-let _cleanupTimer: ReturnType<typeof setInterval> | null = null;
+let _cleanupTimer: Timer | null = null;
 
 /** Start periodic cleanup of expired entries. Call once at server startup. */
 export function startCleanup(): void {

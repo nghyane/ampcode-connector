@@ -27,10 +27,7 @@ export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
         return response;
       } catch (err) {
         logger.error("Unhandled server error", { error: String(err) });
-        return new Response(JSON.stringify({ error: "Internal proxy error" }), {
-          status,
-          headers: { "Content-Type": "application/json" },
-        });
+        return Response.json({ error: "Internal proxy error" }, { status });
       } finally {
         logger.info(`${req.method} ${url.pathname} ${status}`, { duration: Date.now() - startTime });
       }
@@ -155,19 +152,12 @@ function fallbackUpstream(req: Request, body: ParsedBody, config: ProxyConfig): 
 }
 
 function healthCheck(config: ProxyConfig): Response {
-  return new Response(
-    JSON.stringify(
-      {
-        status: "ok",
-        service: "ampcode-connector",
-        port: config.port,
-        upstream: config.ampUpstreamUrl,
-        providers: config.providers,
-        stats: snapshot(),
-      },
-      null,
-      2,
-    ),
-    { status: 200, headers: { "Content-Type": "application/json" } },
-  );
+  return Response.json({
+    status: "ok",
+    service: "ampcode-connector",
+    port: config.port,
+    upstream: config.ampUpstreamUrl,
+    providers: config.providers,
+    stats: snapshot(),
+  });
 }

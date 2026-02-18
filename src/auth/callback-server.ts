@@ -17,7 +17,7 @@ export async function waitForCallback(
 ): Promise<CallbackResult> {
   return new Promise((resolve, reject) => {
     let server: ReturnType<typeof Bun.serve> | null = null;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let timeoutId: Timer | null = null;
 
     const cleanup = () => {
       if (timeoutId) clearTimeout(timeoutId);

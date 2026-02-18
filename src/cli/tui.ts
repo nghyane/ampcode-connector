@@ -27,7 +27,7 @@ let selected = 0;
 let items: Item[] = [];
 let message = "";
 let busy = false;
-let timer: ReturnType<typeof setInterval> | null = null;
+let timer: Timer | null = null;
 
 export function dashboard(): void {
   if (!process.stdin.isTTY) throw new Error("Interactive dashboard requires a TTY.");

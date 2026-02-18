@@ -13,7 +13,7 @@ const providerConfigs: Record<ProviderName, OAuthConfig> = {
   google: configs.google,
 };
 
-let timer: ReturnType<typeof setInterval> | null = null;
+let timer: Timer | null = null;
 
 async function refreshAll(): Promise<void> {
   const now = Date.now();

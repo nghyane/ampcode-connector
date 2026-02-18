@@ -12,7 +12,7 @@ TypeScript + Bun runtime, ESM-only, strict TS. Proxy intercepts Amp CLI requests
 - 2-space indent, double quotes, semicolons always, trailing commas, 120 char line width
 - Biome linter: `recommended` rules enabled. Disabled: `noForEach`, `noExplicitAny`, `noNonNullAssertion`, `useNodejsImportProtocol`
 - tsc strict mode with `noUnusedLocals` and `noUnusedParameters` enabled — no unused code allowed
-- Imports: use `type` keyword for type-only imports (`import { type Foo, bar }`), include `.ts` extensions
+- Imports: use `type` keyword for type-only imports (`import { type Foo, bar }`), include `.ts` extensions. Biome enforces alphabetical import sorting — write specifiers in order (e.g., `import { bar, type Foo }` not `{ Foo, bar }`)
 - Prefer `const` over `let`. Prefix intentionally unused params with `_`
 - Use `async/await`, not callbacks. Functions return `Promise<void>` or explicit types
 - Each provider implements the `Provider` interface from `src/providers/base.ts`

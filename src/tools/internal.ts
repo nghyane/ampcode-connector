@@ -3,70 +3,93 @@
 import type { ProxyConfig } from "../config/config.ts";
 import * as upstream from "../proxy/upstream.ts";
 import { logger } from "../utils/logger.ts";
-import { handleExtract } from "./web-extract.ts";
+import { handleWebRead } from "./web-read.ts";
 import { handleSearch } from "./web-search.ts";
 
-/** Methods handled locally instead of forwarding to Amp upstream. */
-const LOCAL_METHODS = new Set(["extractWebPageContent", "webSearch2"]);
-
-/** Check if an internal method should be handled locally. */
-export function isLocalMethod(search: string): boolean {
-  const method = search.replace("?", "");
-  return LOCAL_METHODS.has(method);
+interface HandlerContext {
+  params: Record<string, unknown>;
+  config: ProxyConfig;
+  forward: () => Promise<Response>;
 }
 
-/** Handle an internal RPC call locally. Returns null if method is unknown. */
+type Handler = (ctx: HandlerContext) => Promise<Response>;
+
+const handlers: Record<string, Handler> = {
+  extractWebPageContent: async ({ params }) => {
+    const url = str(params, "url");
+    if (!url) return error("invalid-params", "missing 'url'");
+    return json(
+      await handleWebRead({ url, objective: str(params, "objective"), forceRefetch: bool(params, "forceRefetch") }),
+    );
+  },
+
+  webSearch2: async ({ params, config, forward }) => {
+    if (!config.exaApiKey) {
+      logger.warn("webSearch2: no exaApiKey configured, forwarding upstream");
+      return forward();
+    }
+    const objective = str(params, "objective");
+    if (!objective) return error("invalid-params", "missing 'objective'");
+    return handleSearch(
+      { objective, searchQueries: strArray(params, "searchQueries"), maxResults: num(params, "maxResults") },
+      config.exaApiKey,
+    ).then(json, (err) => {
+      logger.warn("webSearch2 local failed, falling back to upstream", { error: String(err) });
+      return forward();
+    });
+  },
+};
+
+export function isLocalMethod(search: string): boolean {
+  return search.replace("?", "") in handlers;
+}
+
 export async function handleInternal(req: Request, search: string, config: ProxyConfig): Promise<Response> {
   const method = search.replace("?", "");
   const body = req.method === "POST" ? await req.text() : "";
 
-  let params: Record<string, unknown> = {};
+  let params: Record<string, unknown>;
   try {
-    const parsed = JSON.parse(body);
-    params = parsed.params ?? {};
+    params = JSON.parse(body).params ?? {};
   } catch {
-    return jsonResponse({ ok: false, error: { code: "invalid-body", message: "Invalid JSON body" } });
+    return error("invalid-body", "Invalid JSON body");
   }
 
   logger.info(`[INTERNAL] ${method} params=${JSON.stringify(params).slice(0, 200)}`);
 
-  switch (method) {
-    case "extractWebPageContent": {
-      const result = await handleExtract({
-        url: params.url as string,
-        objective: params.objective as string | undefined,
-        forceRefetch: params.forceRefetch as boolean | undefined,
-      });
-      return jsonResponse(result);
-    }
-    case "webSearch2": {
-      if (!config.exaApiKey) {
-        logger.warn("webSearch2 called but no exaApiKey configured, forwarding upstream");
-        return upstream.forward(rebuildRequest(req, body), config.ampUpstreamUrl, config.ampApiKey);
-      }
-      const result = await handleSearch(
-        {
-          objective: params.objective as string,
-          searchQueries: params.searchQueries as string[] | undefined,
-          maxResults: params.maxResults as number | undefined,
-        },
-        config.exaApiKey,
-      );
-      return jsonResponse(result);
-    }
-    default:
-      return upstream.forward(req, config.ampUpstreamUrl, config.ampApiKey);
-  }
+  const forward = () => {
+    const rebuilt = new Request(req.url, { method: req.method, headers: req.headers, body: body || undefined });
+    return upstream.forward(rebuilt, config.ampUpstreamUrl, config.ampApiKey);
+  };
+
+  const handler = handlers[method];
+  return handler ? handler({ params, config, forward }) : forward();
 }
 
-/** Rebuild request with already-consumed body for upstream forwarding. */
-function rebuildRequest(req: Request, body: string): Request {
-  return new Request(req.url, { method: req.method, headers: req.headers, body: body || undefined });
+function str(p: Record<string, unknown>, k: string): string | undefined {
+  const v = p[k];
+  return typeof v === "string" ? v : undefined;
 }
 
-function jsonResponse(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+function num(p: Record<string, unknown>, k: string): number | undefined {
+  const v = p[k];
+  return typeof v === "number" ? v : undefined;
+}
+
+function bool(p: Record<string, unknown>, k: string): boolean | undefined {
+  const v = p[k];
+  return typeof v === "boolean" ? v : undefined;
+}
+
+function strArray(p: Record<string, unknown>, k: string): string[] | undefined {
+  const v = p[k];
+  return Array.isArray(v) && v.every((i: unknown) => typeof i === "string") ? (v as string[]) : undefined;
+}
+
+function json(data: unknown): Response {
+  return Response.json(data);
+}
+
+function error(code: string, message: string): Response {
+  return Response.json({ ok: false, error: { code, message } });
 }

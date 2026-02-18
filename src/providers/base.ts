@@ -55,8 +55,5 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
 }
 
 export function denied(providerName: string): Response {
-  return new Response(JSON.stringify({ error: `No ${providerName} OAuth token available. Run login first.` }), {
-    status: 401,
-    headers: { "Content-Type": "application/json" },
-  });
+  return Response.json({ error: `No ${providerName} OAuth token available. Run login first.` }, { status: 401 });
 }

@@ -86,8 +86,5 @@ async function tryEndpoints(
     }
   }
 
-  return new Response(JSON.stringify({ error: `All Antigravity endpoints failed: ${lastError?.message}` }), {
-    status: 502,
-    headers: { "Content-Type": "application/json" },
-  });
+  return Response.json({ error: `All Antigravity endpoints failed: ${lastError?.message}` }, { status: 502 });
 }

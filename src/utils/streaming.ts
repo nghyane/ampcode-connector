@@ -48,12 +48,13 @@ export function encode(chunk: Chunk): string {
   return result;
 }
 
+const decoder = new TextDecoder();
+const encoder = new TextEncoder();
+
 export function transform(
   source: ReadableStream<Uint8Array>,
   fn: (data: string) => string,
 ): ReadableStream<Uint8Array> {
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
   let buffer = "";
 
   const stream = new TransformStream<Uint8Array, Uint8Array>({
@@ -86,13 +87,11 @@ export function transform(
   return source.pipeThrough(stream);
 }
 
-export function headers(): Record<string, string> {
-  return {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-  };
-}
+const SSE_HEADERS: Readonly<Record<string, string>> = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+};
 
 const forwardedHeaders = [
   "x-request-id",
@@ -114,7 +113,7 @@ export function proxy(upstream: Response, rewrite?: (data: string) => string): R
 
   const body = rewrite ? transform(upstream.body, rewrite) : upstream.body;
 
-  const h: Record<string, string> = { ...headers() };
+  const h: Record<string, string> = { ...SSE_HEADERS };
   for (const name of forwardedHeaders) {
     const value = upstream.headers.get(name);
     if (value) h[name] = value;
