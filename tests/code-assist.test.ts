@@ -7,6 +7,8 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { GoogleGenAI } from "@google/genai";
+import { google } from "../src/auth/configs.ts";
+import * as oauth from "../src/auth/oauth.ts";
 import * as store from "../src/auth/store.ts";
 import { provider as antigravity } from "../src/providers/antigravity.ts";
 import type { provider as gemini } from "../src/providers/gemini.ts";
@@ -16,9 +18,11 @@ import * as path from "../src/utils/path.ts";
 
 let creds: ReturnType<typeof store.get>;
 
-beforeAll(() => {
+beforeAll(async () => {
   creds = store.get("google");
   if (!creds) throw new Error("No google credentials — run `bun run login` first");
+  const freshToken = await oauth.token(google);
+  if (!freshToken) throw new Error("Failed to refresh google token");
 });
 
 /** Minimal proxy that forces a specific provider. */

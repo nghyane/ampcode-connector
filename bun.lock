@@ -7,6 +7,7 @@
       "dependencies": {
         "@google/genai": "^1.41.0",
         "@kreuzberg/html-to-markdown": "^2.25.0",
+        "ampcode-connector": "^0.1.5",
         "exa-js": "^2.4.0",
       },
       "devDependencies": {
@@ -92,6 +93,8 @@
     "@types/node": ["@types/node@25.2.3", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-m0jEgYlYz+mDJZ2+F4v8D1AyQb+QzsNqRuI7xg1VQX/KlKS0qT9r1Mo16yo5F/MtifXFgaofIFsdFMox2SxIbQ=="],
 
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
+
+    "ampcode-connector": ["ampcode-connector@0.1.5", "", { "dependencies": { "@google/genai": "^1.41.0", "@kreuzberg/html-to-markdown": "^2.25.0", "exa-js": "^2.4.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "ampcode-connector": "src/index.ts" } }, "sha512-3KKFELHZsdhWbD5RhHpd+M1wiO+oZlBCXTEEZ2XraksazN2ZnYquwu8gVmycepbhCoW0oY5Uj9IDnUQHfrCvmA=="],
 
     "ansi-regex": ["ansi-regex@6.2.2", "", {}, "sha512-Bq3SmSpyFHaWjPk8If9yc6svM8c56dB5BAtW4Qbw5jHTwwXXcTLoRMkpDJp6VL0XzlWaCHTXrkFURMYmD0sLqg=="],
 

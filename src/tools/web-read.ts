@@ -44,6 +44,9 @@ const RANKING = {
   MIN_KEYWORD_LEN: 3,
   HEADING_BOOST: 2,
   BIGRAM_BOOST: 1.5,
+  POSITION_DECAY: 0.1,
+  BM25_K1: 1.5,
+  BM25_B: 0.75,
 } as const;
 
 const CLIPPING = {
@@ -155,20 +158,20 @@ function convertToMarkdown(raw: string, contentType: string): string {
 function rankExcerpts(markdown: string, objective: string): string[] {
   const sections = splitSections(markdown);
   if (!sections.length) return [clipText(markdown)];
-
   const { unigrams, bigrams } = parseTerms(objective);
   if (!unigrams.length) return [clipText(markdown)];
-
-  const idfWeights = computeIdf(sections, unigrams);
-  const scored = sections.map((section) => scoreSection(section, unigrams, bigrams, idfWeights));
-
+  const unigramPatterns = unigrams.map((w) => new RegExp(`\\b${RegExp.escape(w)}\\b`, "g"));
+  const idfWeights = computeIdf(sections, unigramPatterns);
+  const avgDocLen = sections.reduce((sum, s) => sum + (s.text.split(/\s+/).length || 1), 0) / sections.length;
+  const totalSections = sections.length;
+  const scored = sections.map((section) =>
+    scoreSection(section, unigramPatterns, bigrams, idfWeights, avgDocLen, totalSections),
+  );
   const hits = scored.filter((s) => s.score > 0);
   if (!hits.length) return [clipText(markdown)];
-
   hits.sort((a, b) => b.score - a.score || a.index - b.index);
   const top = hits.slice(0, RANKING.MAX_SECTIONS);
   top.sort((a, b) => a.index - b.index);
-
   return clipMany(top.map((s) => s.text));
 }
 
@@ -185,45 +188,61 @@ function parseTerms(objective: string): { unigrams: string[]; bigrams: RegExp[] 
   return { unigrams: words, bigrams };
 }
 
-function computeIdf(sections: Section[], unigrams: string[]): number[] {
+function computeIdf(sections: Section[], patterns: RegExp[]): number[] {
   const lowerTexts = sections.map((section) => section.text.toLowerCase());
   const totalSections = sections.length;
-
-  return unigrams.map((word) => {
-    const pattern = new RegExp(`\\b${RegExp.escape(word)}\\b`);
-    const docFreq = lowerTexts.filter((text) => pattern.test(text)).length;
-    return docFreq > 0 ? Math.log(totalSections / docFreq) + 1 : 0;
+  return patterns.map((pattern) => {
+    const docFreq = lowerTexts.filter((text) => {
+      pattern.lastIndex = 0;
+      return pattern.test(text);
+    }).length;
+    return docFreq > 0 ? Math.log((totalSections - docFreq + 0.5) / (docFreq + 0.5) + 1) : 0;
   });
 }
 
-function scoreSection(section: Section, unigrams: string[], bigrams: RegExp[], idfWeights: number[]): ScoredSection {
+function scoreSection(
+  section: Section,
+  unigramPatterns: RegExp[],
+  bigrams: RegExp[],
+  idfWeights: number[],
+  avgDocLen: number,
+  totalSections: number,
+): ScoredSection {
   const lowerText = section.text.toLowerCase();
   const lowerHeading = section.heading.toLowerCase();
-  const wordCount = lowerText.split(/\s+/).length || 1;
+  const docLen = lowerText.split(/\s+/).length || 1;
 
-  // Unigram TF-IDF
+  // BM25 scoring
+  const { BM25_K1: k1, BM25_B: b } = RANKING;
   let score = 0;
-  for (let i = 0; i < unigrams.length; i++) {
-    const pattern = new RegExp(`\\b${RegExp.escape(unigrams[i]!)}\\b`, "g");
+  for (let i = 0; i < unigramPatterns.length; i++) {
+    const pattern = unigramPatterns[i]!;
+    pattern.lastIndex = 0;
     const matches = lowerText.match(pattern);
     if (matches) {
-      score += (matches.length / wordCount) * idfWeights[i]!;
+      const tf = matches.length;
+      score += idfWeights[i]! * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (docLen / avgDocLen))));
     }
   }
-
   // Bigram bonus
   for (const pattern of bigrams) {
     if (pattern.test(lowerText)) score *= RANKING.BIGRAM_BOOST;
   }
 
-  // Heading match boost
+  // Heading match boost (reuse pre-compiled patterns)
   if (section.heading) {
-    const headingPattern = unigrams.map((word) => new RegExp(`\\b${RegExp.escape(word)}\\b`));
-    if (headingPattern.some((pattern) => pattern.test(lowerHeading))) {
+    if (
+      unigramPatterns.some((pattern) => {
+        pattern.lastIndex = 0;
+        return pattern.test(lowerHeading);
+      })
+    ) {
       score *= RANKING.HEADING_BOOST;
     }
   }
 
+  // Position decay — earlier sections get mild boost
+  score *= 1 + RANKING.POSITION_DECAY * (1 - section.index / totalSections);
   return { text: section.text, score, index: section.index };
 }
 

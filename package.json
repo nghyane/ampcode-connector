@@ -34,8 +34,9 @@
     "dev": "bun run --watch src/index.ts",
     "setup": "bun run src/index.ts setup",
     "login": "bun run src/index.ts login",
-    "test": "bun test",
-    "check": "biome check src/ tests/ && tsc --noEmit && bun test",
+    "test": "bun test tests/router.test.ts tests/middleware.test.ts tests/rewriter.test.ts",
+    "test:e2e": "bun test tests/code-assist.test.ts",
+    "check": "biome check src/ tests/ && tsc --noEmit && bun run test",
     "format": "biome check --write src/ tests/"
   },
   "devDependencies": {
@@ -48,6 +49,7 @@
   "dependencies": {
     "@google/genai": "^1.41.0",
     "@kreuzberg/html-to-markdown": "^2.25.0",
+    "ampcode-connector": "^0.1.5",
     "exa-js": "^2.4.0"
   }
 }

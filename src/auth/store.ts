@@ -54,6 +54,7 @@ function init() {
   mkdirSync(DIR, { recursive: true, mode: 0o700 });
   _db = new Database(DB_PATH, { strict: true });
   _db.exec("PRAGMA journal_mode=WAL");
+  _db.exec("PRAGMA busy_timeout=5000");
   _db.exec(`
     CREATE TABLE IF NOT EXISTS credentials (
       provider TEXT NOT NULL,
