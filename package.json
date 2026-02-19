@@ -40,16 +40,16 @@
     "format": "biome check --write src/ tests/"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.0",
+    "@biomejs/biome": "^2.4.2",
+    "@google/genai": "^1.42.0",
     "@types/bun": "^1.3.9"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@google/genai": "^1.41.0",
-    "@kreuzberg/html-to-markdown": "^2.25.0",
-    "ampcode-connector": "^0.1.5",
+    "@kreuzberg/html-to-markdown": "^2.25.1",
+    "ampcode-connector": "^0.1.8",
     "exa-js": "^2.4.0"
   }
 }
