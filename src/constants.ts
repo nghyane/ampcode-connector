@@ -25,9 +25,11 @@ export const codexHeaderValues = {
   USER_AGENT: `codex_cli_rs/0.101.0 (${process.platform} ${process.arch})`,
 } as const;
 
-/** Map /v1/responses → /codex/responses for the ChatGPT backend. */
+/** Map Amp CLI paths → ChatGPT backend paths.
+ *  Both /v1/responses and /v1/chat/completions route to /codex/responses. */
 export const codexPathMap: Record<string, string> = {
   "/v1/responses": "/codex/responses",
+  "/v1/chat/completions": "/codex/responses",
 } as const;
 export const DEFAULT_AMP_UPSTREAM_URL = "https://ampcode.com";
 
