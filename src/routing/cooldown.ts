@@ -20,62 +20,62 @@ const EXHAUSTED_CONSECUTIVE = 3;
 /** Default burst cooldown when no Retry-After header. */
 const DEFAULT_BURST_S = 30;
 
-const entries = new Map<string, CooldownEntry>();
+export class CooldownTracker {
+  private entries = new Map<string, CooldownEntry>();
 
-function key(pool: QuotaPool, account: number): string {
-  return `${pool}:${account}`;
-}
-
-export function isCoolingDown(pool: QuotaPool, account: number): boolean {
-  const k = key(pool, account);
-  const entry = entries.get(k);
-  if (!entry) return false;
-  if (Date.now() >= entry.until) {
-    entries.delete(k);
-    return false;
-  }
-  return true;
-}
-
-export function isExhausted(pool: QuotaPool, account: number): boolean {
-  const k = key(pool, account);
-  const entry = entries.get(k);
-  if (!entry) return false;
-  if (Date.now() >= entry.until) {
-    entries.delete(k);
-    return false;
-  }
-  return entry.exhausted;
-}
-
-export function record429(pool: QuotaPool, account: number, retryAfterSeconds?: number): void {
-  const k = key(pool, account);
-  const entry = entries.get(k) ?? { until: 0, exhausted: false, consecutive429: 0 };
-
-  entry.consecutive429++;
-  const retryAfter = retryAfterSeconds ?? DEFAULT_BURST_S;
-
-  if (retryAfter > EXHAUSTED_THRESHOLD_S || entry.consecutive429 >= EXHAUSTED_CONSECUTIVE) {
-    entry.exhausted = true;
-    entry.until = Date.now() + EXHAUSTED_COOLDOWN_MS;
-    logger.warn(`Quota exhausted: ${k}`, { cooldownMinutes: EXHAUSTED_COOLDOWN_MS / 60_000 });
-  } else {
-    entry.until = Date.now() + retryAfter * 1000;
-    logger.debug(`Burst cooldown: ${k}`, { retryAfterSeconds: retryAfter });
+  private key(pool: QuotaPool, account: number): string {
+    return `${pool}:${account}`;
   }
 
-  entries.set(k, entry);
-}
+  private getEntry(pool: QuotaPool, account: number): CooldownEntry | undefined {
+    const k = this.key(pool, account);
+    const entry = this.entries.get(k);
+    if (!entry) return undefined;
+    if (Date.now() >= entry.until) {
+      this.entries.delete(k);
+      return undefined;
+    }
+    return entry;
+  }
 
-export function recordSuccess(pool: QuotaPool, account: number): void {
-  const k = key(pool, account);
-  const entry = entries.get(k);
-  if (entry) {
-    entry.consecutive429 = 0;
-    entry.exhausted = false;
-    entries.delete(k);
+  isCoolingDown(pool: QuotaPool, account: number): boolean {
+    return this.getEntry(pool, account) !== undefined;
+  }
+
+  isExhausted(pool: QuotaPool, account: number): boolean {
+    return this.getEntry(pool, account)?.exhausted ?? false;
+  }
+
+  record429(pool: QuotaPool, account: number, retryAfterSeconds?: number): void {
+    const k = this.key(pool, account);
+    const entry = this.entries.get(k) ?? { until: 0, exhausted: false, consecutive429: 0 };
+
+    entry.consecutive429++;
+    const retryAfter = retryAfterSeconds ?? DEFAULT_BURST_S;
+
+    if (retryAfter > EXHAUSTED_THRESHOLD_S || entry.consecutive429 >= EXHAUSTED_CONSECUTIVE) {
+      entry.exhausted = true;
+      entry.until = Date.now() + EXHAUSTED_COOLDOWN_MS;
+      logger.warn(`Quota exhausted: ${k}`, { cooldownMinutes: EXHAUSTED_COOLDOWN_MS / 60_000 });
+    } else {
+      entry.until = Date.now() + retryAfter * 1000;
+      logger.debug(`Burst cooldown: ${k}`, { retryAfterSeconds: retryAfter });
+    }
+
+    this.entries.set(k, entry);
+  }
+
+  recordSuccess(pool: QuotaPool, account: number): void {
+    this.entries.delete(this.key(pool, account));
+  }
+
+  reset(): void {
+    this.entries.clear();
   }
 }
+
+/** Singleton instance for production use. */
+export const cooldown = new CooldownTracker();
 
 /** Parse Retry-After header (seconds or HTTP-date). */
 export function parseRetryAfter(header: string | null): number | undefined {

@@ -1,16 +1,16 @@
 /** HTTP server — routes provider requests through local OAuth or Amp upstream. */
 
+import { maybeShowAd } from "../cli/ads.ts";
 import type { ProxyConfig } from "../config/config.ts";
 import * as rewriter from "../proxy/rewriter.ts";
 import * as upstream from "../proxy/upstream.ts";
-import { startCleanup } from "../routing/affinity.ts";
+import { affinity } from "../routing/affinity.ts";
 import { tryReroute, tryWithCachePreserve } from "../routing/retry.ts";
 import { recordSuccess, routeRequest } from "../routing/router.ts";
 import { handleInternal, isLocalMethod } from "../tools/internal.ts";
-import { maybeShowAd } from "../utils/ads.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
-import { record, snapshot } from "../utils/stats.ts";
+import { stats } from "../utils/stats.ts";
 import { type ParsedBody, parseBody } from "./body.ts";
 
 export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
@@ -35,7 +35,7 @@ export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
     },
   });
 
-  startCleanup();
+  affinity.startCleanup();
   logger.info(`ampcode-connector listening on http://localhost:${config.port}`);
 
   const shutdown = () => {
@@ -130,7 +130,7 @@ async function handleProvider(
     response = await fallbackUpstream(req, body, config);
   }
 
-  record({
+  stats.record({
     timestamp: new Date().toISOString(),
     route: route.decision,
     provider: providerName,
@@ -161,6 +161,6 @@ function healthCheck(config: ProxyConfig): Response {
     port: config.port,
     upstream: config.ampUpstreamUrl,
     providers: config.providers,
-    stats: snapshot(),
+    stats: stats.snapshot(),
   });
 }

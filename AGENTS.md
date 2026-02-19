@@ -19,6 +19,14 @@ TypeScript + Bun runtime, ESM-only, strict TS. Proxy intercepts Amp CLI requests
 - Log routing decisions: `LOCAL_CLAUDE`, `LOCAL_CODEX`, `LOCAL_GEMINI`, `LOCAL_ANTIGRAVITY`, `AMP_UPSTREAM`
 - No external frameworks — uses Bun built-ins (Bun.serve, Bun.YAML, fetch)
 
+## Design Principles
+- **Specs before code** — New features must have a brief design/spec written (in PR description or doc) before implementation begins
+- **Strict type safety** — Never bypass type errors; no implicit `any`. Fix types, don't cast around them
+- **Immutable data** — Do not mutate shared data structures directly; prefer creating new copies or using immutable patterns
+- **Pure functions** — Extract logic into pure functions (input → output, no side effects) for testability and clarity
+- **Clear boundaries** — Respect layer separation (CLI → server → routing → providers → auth). Do not call across layers directly
+- **Environment-agnostic** — Utilities and core logic must not depend on specific runtime details; isolate platform-specific code at the edges
+
 ## Important
 - **Do NOT modify `references/`** — read-only reference code from external projects (oh-my-pi-ai proxy + CLIProxyAPI patterns used as architectural reference)
 - Dependencies: `@google/genai`, `exa-js`, `@kreuzberg/html-to-markdown`. Prefer Bun built-ins over npm packages

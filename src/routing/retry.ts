@@ -3,7 +3,7 @@
 import type { ProxyConfig } from "../config/config.ts";
 import type { ParsedBody } from "../server/body.ts";
 import { logger } from "../utils/logger.ts";
-import { parseRetryAfter, record429 } from "./cooldown.ts";
+import { cooldown, parseRetryAfter } from "./cooldown.ts";
 import { type RouteResult, recordSuccess, rerouteAfter429 } from "./router.ts";
 
 /** Max 429-reroute attempts before falling back to upstream. */
@@ -33,7 +33,7 @@ export async function tryWithCachePreserve(
   }
   if (response.status === 429) {
     const nextRetryAfter = parseRetryAfter(response.headers.get("retry-after"));
-    record429(route.pool!, route.account, nextRetryAfter);
+    cooldown.record429(route.pool!, route.account, nextRetryAfter);
   }
   return null;
 }
@@ -66,7 +66,7 @@ export async function tryReroute(
 
     if (response.status === 429 && next.pool) {
       const nextRetryAfter = parseRetryAfter(response.headers.get("retry-after"));
-      record429(next.pool, next.account, nextRetryAfter);
+      cooldown.record429(next.pool, next.account, nextRetryAfter);
       currentPool = next.pool;
       currentAccount = next.account;
       continue;

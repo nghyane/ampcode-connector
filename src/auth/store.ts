@@ -18,8 +18,8 @@ export interface Credentials {
 
 export type ProviderName = "anthropic" | "codex" | "google";
 
-const DIR = join(homedir(), ".ampcode-connector");
-const DB_PATH = join(DIR, "credentials.db");
+const DEFAULT_DIR = join(homedir(), ".ampcode-connector");
+const DEFAULT_DB_PATH = join(DEFAULT_DIR, "credentials.db");
 
 interface DataRow {
   data: string;
@@ -47,12 +47,19 @@ interface Statements {
 
 let _db: Database | null = null;
 let _stmts: Statements | null = null;
+let _dbPath = DEFAULT_DB_PATH;
+
+/** Override the database path (must be called before any store operation). */
+export function setDbPath(path: string): void {
+  _dbPath = path;
+}
 
 function init() {
   if (_stmts) return _stmts;
 
-  mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  _db = new Database(DB_PATH, { strict: true });
+  const dir = _dbPath.replace(/\/[^/]+$/, "");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  _db = new Database(_dbPath, { strict: true });
   _db.exec("PRAGMA journal_mode=WAL");
   _db.exec("PRAGMA busy_timeout=5000");
   _db.exec(`

@@ -11,22 +11,6 @@ export interface RequestEntry {
   durationMs: number;
 }
 
-const MAX_ENTRIES = 1000;
-const buffer: RequestEntry[] = [];
-let writeIndex = 0;
-let totalCount = 0;
-const startedAt = Date.now();
-
-export function record(entry: RequestEntry): void {
-  if (buffer.length < MAX_ENTRIES) {
-    buffer.push(entry);
-  } else {
-    buffer[writeIndex] = entry;
-  }
-  writeIndex = (writeIndex + 1) % MAX_ENTRIES;
-  totalCount++;
-}
-
 export interface StatsSnapshot {
   totalRequests: number;
   requestsByRoute: Partial<Record<RouteDecision, number>>;
@@ -35,35 +19,66 @@ export interface StatsSnapshot {
   uptimeMs: number;
 }
 
-export function snapshot(): StatsSnapshot {
-  const requestsByRoute: Partial<Record<RouteDecision, number>> = {};
-  let count429 = 0;
-  let totalDuration = 0;
+export class StatsRecorder {
+  private readonly maxEntries: number;
+  private buffer: RequestEntry[] = [];
+  private writeIndex = 0;
+  private totalCount = 0;
+  private readonly startedAt = Date.now();
 
-  for (const entry of buffer) {
-    requestsByRoute[entry.route] = (requestsByRoute[entry.route] ?? 0) + 1;
-    if (entry.statusCode === 429) count429++;
-    totalDuration += entry.durationMs;
+  constructor(maxEntries = 1000) {
+    this.maxEntries = maxEntries;
   }
 
-  return {
-    totalRequests: totalCount,
-    requestsByRoute,
-    count429,
-    averageDurationMs: buffer.length > 0 ? totalDuration / buffer.length : 0,
-    uptimeMs: Date.now() - startedAt,
-  };
-}
-
-export function recentRequests(n: number): RequestEntry[] {
-  const count = Math.min(n, buffer.length);
-  if (count === 0) return [];
-
-  const result: RequestEntry[] = [];
-  let idx = (writeIndex - count + buffer.length) % buffer.length;
-  for (let i = 0; i < count; i++) {
-    result.push(buffer[idx]!);
-    idx = (idx + 1) % buffer.length;
+  record(entry: RequestEntry): void {
+    if (this.buffer.length < this.maxEntries) {
+      this.buffer.push(entry);
+    } else {
+      this.buffer[this.writeIndex] = entry;
+    }
+    this.writeIndex = (this.writeIndex + 1) % this.maxEntries;
+    this.totalCount++;
   }
-  return result;
+
+  snapshot(): StatsSnapshot {
+    const requestsByRoute: Partial<Record<RouteDecision, number>> = {};
+    let count429 = 0;
+    let totalDuration = 0;
+
+    for (const entry of this.buffer) {
+      requestsByRoute[entry.route] = (requestsByRoute[entry.route] ?? 0) + 1;
+      if (entry.statusCode === 429) count429++;
+      totalDuration += entry.durationMs;
+    }
+
+    return {
+      totalRequests: this.totalCount,
+      requestsByRoute,
+      count429,
+      averageDurationMs: this.buffer.length > 0 ? totalDuration / this.buffer.length : 0,
+      uptimeMs: Date.now() - this.startedAt,
+    };
+  }
+
+  recentRequests(n: number): RequestEntry[] {
+    const count = Math.min(n, this.buffer.length);
+    if (count === 0) return [];
+
+    const result: RequestEntry[] = [];
+    let idx = (this.writeIndex - count + this.buffer.length) % this.buffer.length;
+    for (let i = 0; i < count; i++) {
+      result.push(this.buffer[idx]!);
+      idx = (idx + 1) % this.buffer.length;
+    }
+    return result;
+  }
+
+  reset(): void {
+    this.buffer = [];
+    this.writeIndex = 0;
+    this.totalCount = 0;
+  }
 }
+
+/** Singleton instance for production use. */
+export const stats = new StatsRecorder();

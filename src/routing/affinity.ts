@@ -5,7 +5,7 @@
 
 import type { QuotaPool } from "./cooldown.ts";
 
-interface AffinityEntry {
+export interface AffinityEntry {
   pool: QuotaPool;
   account: number;
   assignedAt: number;
@@ -16,84 +16,106 @@ const TTL_MS = 2 * 3600_000;
 /** Cleanup stale entries every 10 minutes. */
 const CLEANUP_INTERVAL_MS = 10 * 60_000;
 
-const map = new Map<string, AffinityEntry>();
-const counts = new Map<string, number>();
+export class AffinityStore {
+  private map = new Map<string, AffinityEntry>();
+  private counts = new Map<string, number>();
+  private cleanupTimer: Timer | null = null;
 
-function key(threadId: string, ampProvider: string): string {
-  return `${threadId}\0${ampProvider}`;
-}
-
-function countKey(pool: QuotaPool, account: number): string {
-  return `${pool}:${account}`;
-}
-
-function incCount(pool: QuotaPool, account: number): void {
-  const k = countKey(pool, account);
-  counts.set(k, (counts.get(k) ?? 0) + 1);
-}
-
-function decCount(pool: QuotaPool, account: number): void {
-  const k = countKey(pool, account);
-  const v = (counts.get(k) ?? 0) - 1;
-  if (v <= 0) counts.delete(k);
-  else counts.set(k, v);
-}
-
-export function get(threadId: string, ampProvider: string): AffinityEntry | undefined {
-  const k = key(threadId, ampProvider);
-  const entry = map.get(k);
-  if (!entry) return undefined;
-  if (Date.now() - entry.assignedAt > TTL_MS) {
-    map.delete(k);
-    decCount(entry.pool, entry.account);
-    return undefined;
+  private key(threadId: string, ampProvider: string): string {
+    return `${threadId}\0${ampProvider}`;
   }
-  // Touch: keep affinity alive while thread is active
-  entry.assignedAt = Date.now();
-  return entry;
-}
 
-export function set(threadId: string, ampProvider: string, pool: QuotaPool, account: number): void {
-  const k = key(threadId, ampProvider);
-  const existing = map.get(k);
-  if (existing) {
-    if (existing.pool !== pool || existing.account !== account) {
-      decCount(existing.pool, existing.account);
-      incCount(pool, account);
+  private countKey(pool: QuotaPool, account: number): string {
+    return `${pool}:${account}`;
+  }
+
+  private incCount(pool: QuotaPool, account: number): void {
+    const k = this.countKey(pool, account);
+    this.counts.set(k, (this.counts.get(k) ?? 0) + 1);
+  }
+
+  private decCount(pool: QuotaPool, account: number): void {
+    const k = this.countKey(pool, account);
+    const v = (this.counts.get(k) ?? 0) - 1;
+    if (v <= 0) this.counts.delete(k);
+    else this.counts.set(k, v);
+  }
+
+  private removeExpired(k: string, entry: AffinityEntry): void {
+    this.map.delete(k);
+    this.decCount(entry.pool, entry.account);
+  }
+
+  /** Read affinity without side effects. Returns undefined if expired or missing. */
+  peek(threadId: string, ampProvider: string): AffinityEntry | undefined {
+    const k = this.key(threadId, ampProvider);
+    const entry = this.map.get(k);
+    if (!entry) return undefined;
+    if (Date.now() - entry.assignedAt > TTL_MS) {
+      this.removeExpired(k, entry);
+      return undefined;
     }
-  } else {
-    incCount(pool, account);
+    return entry;
   }
-  map.set(k, { pool, account, assignedAt: Date.now() });
-}
 
-/** Break affinity when account is exhausted — allow re-routing. */
-export function clear(threadId: string, ampProvider: string): void {
-  const k = key(threadId, ampProvider);
-  const existing = map.get(k);
-  if (existing) {
-    decCount(existing.pool, existing.account);
-    map.delete(k);
+  /** Read affinity and touch (extend TTL). */
+  get(threadId: string, ampProvider: string): AffinityEntry | undefined {
+    const entry = this.peek(threadId, ampProvider);
+    if (entry) entry.assignedAt = Date.now();
+    return entry;
   }
-}
 
-/** Count active threads pinned to a specific (pool, account). */
-export function activeCount(pool: QuotaPool, account: number): number {
-  return counts.get(countKey(pool, account)) ?? 0;
-}
-
-let _cleanupTimer: Timer | null = null;
-
-/** Start periodic cleanup of expired entries. Call once at server startup. */
-export function startCleanup(): void {
-  if (_cleanupTimer) return;
-  _cleanupTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [k, entry] of map) {
-      if (now - entry.assignedAt > TTL_MS) {
-        map.delete(k);
-        decCount(entry.pool, entry.account);
+  set(threadId: string, ampProvider: string, pool: QuotaPool, account: number): void {
+    const k = this.key(threadId, ampProvider);
+    const existing = this.map.get(k);
+    if (existing) {
+      if (existing.pool !== pool || existing.account !== account) {
+        this.decCount(existing.pool, existing.account);
+        this.incCount(pool, account);
       }
+    } else {
+      this.incCount(pool, account);
     }
-  }, CLEANUP_INTERVAL_MS);
+    this.map.set(k, { pool, account, assignedAt: Date.now() });
+  }
+
+  /** Break affinity when account is exhausted — allow re-routing. */
+  clear(threadId: string, ampProvider: string): void {
+    const k = this.key(threadId, ampProvider);
+    const existing = this.map.get(k);
+    if (existing) {
+      this.decCount(existing.pool, existing.account);
+      this.map.delete(k);
+    }
+  }
+
+  /** Count active threads pinned to a specific (pool, account). */
+  activeCount(pool: QuotaPool, account: number): number {
+    return this.counts.get(this.countKey(pool, account)) ?? 0;
+  }
+
+  /** Start periodic cleanup of expired entries. Call once at server startup. */
+  startCleanup(): void {
+    if (this.cleanupTimer) return;
+    this.cleanupTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [k, entry] of this.map) {
+        if (now - entry.assignedAt > TTL_MS) {
+          this.removeExpired(k, entry);
+        }
+      }
+    }, CLEANUP_INTERVAL_MS);
+  }
+
+  reset(): void {
+    this.map.clear();
+    this.counts.clear();
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+  }
 }
+
+/** Singleton instance for production use. */
+export const affinity = new AffinityStore();

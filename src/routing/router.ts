@@ -17,9 +17,8 @@ import type { Provider } from "../providers/base.ts";
 import { provider as codex } from "../providers/codex.ts";
 import { provider as gemini } from "../providers/gemini.ts";
 import { logger, type RouteDecision } from "../utils/logger.ts";
-import * as affinity from "./affinity.ts";
-import type { QuotaPool } from "./cooldown.ts";
-import * as cooldown from "./cooldown.ts";
+import { affinity } from "./affinity.ts";
+import { cooldown, type QuotaPool } from "./cooldown.ts";
 
 interface ProviderEntry {
   provider: Provider;

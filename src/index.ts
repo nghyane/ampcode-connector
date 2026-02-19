@@ -5,13 +5,13 @@ import { startAutoRefresh } from "./auth/auto-refresh.ts";
 import * as configs from "./auth/configs.ts";
 import type { OAuthConfig } from "./auth/oauth.ts";
 import * as oauth from "./auth/oauth.ts";
+import { bannerAd } from "./cli/ads.ts";
 import { line, s } from "./cli/ansi.ts";
 import { setup } from "./cli/setup.ts";
 import * as status from "./cli/status.ts";
 import { dashboard } from "./cli/tui.ts";
 import { loadConfig, type ProxyConfig } from "./config/config.ts";
 import { startServer } from "./server/server.ts";
-import { bannerAd } from "./utils/ads.ts";
 import { logger, setLogLevel } from "./utils/logger.ts";
 
 const providers: Record<string, OAuthConfig> = {
