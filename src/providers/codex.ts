@@ -24,13 +24,14 @@ export const provider: Provider = {
 
   accountCount: () => oauth.accountCount(config),
 
-  async forward(sub, body, _originalHeaders, rewrite, account = 0) {
+  async forward(sub, body, originalHeaders, rewrite, account = 0) {
     const accessToken = await oauth.token(config, account);
     if (!accessToken) return denied("OpenAI Codex");
 
     const accountId = getAccountId(accessToken, account);
     const codexPath = codexPathMap[sub] ?? sub;
-    const { body: codexBody, needsResponseTransform } = transformForCodex(body.forwardBody);
+    const promptCacheKey = originalHeaders.get("x-amp-thread-id") ?? undefined;
+    const { body: codexBody, needsResponseTransform } = transformForCodex(body.forwardBody, promptCacheKey);
     const ampModel = body.ampModel ?? "gpt-5.2";
 
     const response = await forward({
@@ -50,6 +51,9 @@ export const provider: Provider = {
         "User-Agent": codexHeaderValues.USER_AGENT,
         Version: codexHeaderValues.VERSION,
         ...(accountId ? { [codexHeaders.ACCOUNT_ID]: accountId } : {}),
+        ...(promptCacheKey
+          ? { [codexHeaders.SESSION_ID]: promptCacheKey, [codexHeaders.CONVERSATION_ID]: promptCacheKey }
+          : {}),
       },
     });
 
@@ -79,7 +83,20 @@ interface ToolCallItem {
   function: { name: string; arguments: string };
 }
 
-function transformForCodex(rawBody: string): { body: string; needsResponseTransform: boolean } {
+function clampReasoningEffort(model: string, effort: string): string {
+  const modelId = model.includes("/") ? model.split("/").pop()! : model;
+  if (modelId === "gpt-5.1" && effort === "xhigh") return "high";
+  if ((modelId.startsWith("gpt-5.2") || modelId.startsWith("gpt-5.3")) && effort === "minimal") return "low";
+  if (modelId === "gpt-5.1-codex-mini") {
+    return effort === "high" || effort === "xhigh" ? "high" : "medium";
+  }
+  return effort;
+}
+
+function transformForCodex(
+  rawBody: string,
+  promptCacheKey?: string,
+): { body: string; needsResponseTransform: boolean } {
   if (!rawBody) return { body: rawBody, needsResponseTransform: false };
 
   let parsed: Record<string, unknown>;
@@ -111,6 +128,22 @@ function transformForCodex(rawBody: string): { body: string; needsResponseTransf
   // Strip id fields from input items
   if (Array.isArray(parsed.input)) {
     stripInputIds(parsed.input as Record<string, unknown>[]);
+    fixOrphanOutputs(parsed.input as Record<string, unknown>[]);
+  }
+
+  // Reasoning config — defaults match reference behavior
+  const model = (parsed.model as string) ?? "";
+  parsed.reasoning = {
+    effort: clampReasoningEffort(model, "high"),
+    summary: "auto",
+  };
+
+  parsed.text = { verbosity: "medium" };
+
+  parsed.include = ["reasoning.encrypted_content"];
+
+  if (promptCacheKey) {
+    parsed.prompt_cache_key = promptCacheKey;
   }
 
   // Remove fields the Codex backend doesn't accept
@@ -126,6 +159,21 @@ function transformForCodex(rawBody: string): { body: string; needsResponseTransf
   delete parsed.stop;
   delete parsed.logit_bias;
   delete parsed.response_format;
+
+  // Normalize tool_choice for Responses API
+  if (parsed.tool_choice !== undefined && parsed.tool_choice !== null) {
+    if (typeof parsed.tool_choice === "string") {
+      // "auto", "none", "required" pass through as-is
+    } else if (typeof parsed.tool_choice === "object") {
+      const tc = parsed.tool_choice as Record<string, unknown>;
+      if (tc.type === "function" && tc.function) {
+        const fn = tc.function as Record<string, unknown>;
+        parsed.tool_choice = { type: "function", name: fn.name };
+      } else if (tc.type === "tool" && tc.name) {
+        parsed.tool_choice = { type: "function", name: tc.name };
+      }
+    }
+  }
 
   return { body: JSON.stringify(parsed), needsResponseTransform };
 }
@@ -247,6 +295,40 @@ function stripInputIds(items: Record<string, unknown>[]): void {
   for (const item of items) {
     if ("id" in item) {
       delete item.id;
+    }
+  }
+}
+
+/** Convert orphan function_call_output items (no matching function_call) to assistant messages. */
+function fixOrphanOutputs(items: Record<string, unknown>[]): void {
+  const callIds = new Set(
+    items.filter((i) => i.type === "function_call" && typeof i.call_id === "string").map((i) => i.call_id as string),
+  );
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    if (item.type === "function_call_output" && typeof item.call_id === "string" && !callIds.has(item.call_id)) {
+      const toolName = typeof item.name === "string" ? (item.name as string) : "tool";
+      let text = "";
+      try {
+        text = typeof item.output === "string" ? (item.output as string) : JSON.stringify(item.output);
+      } catch {
+        text = String(item.output ?? "");
+      }
+      if (text.length > 16000) {
+        text = `${text.slice(0, 16000)}\n...[truncated]`;
+      }
+      items[i] = {
+        type: "message",
+        role: "assistant",
+        content: [
+          {
+            type: "output_text",
+            text: `[Previous ${toolName} result; call_id=${item.call_id}]: ${text}`,
+            annotations: [],
+          },
+        ],
+        status: "completed",
+      };
     }
   }
 }

@@ -17,6 +17,7 @@ export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
   const server = Bun.serve({
     port: config.port,
     hostname: "localhost",
+    idleTimeout: 255, // seconds — LLM streaming responses can take minutes
 
     async fetch(req) {
       const startTime = Date.now();
