@@ -7,6 +7,7 @@ import { startCleanup } from "../routing/affinity.ts";
 import { tryReroute, tryWithCachePreserve } from "../routing/retry.ts";
 import { recordSuccess, routeRequest } from "../routing/router.ts";
 import { handleInternal, isLocalMethod } from "../tools/internal.ts";
+import { maybeShowAd } from "../utils/ads.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
 import { record, snapshot } from "../utils/stats.ts";
@@ -137,6 +138,8 @@ async function handleProvider(
     statusCode: response.status,
     durationMs: Date.now() - startTime,
   });
+
+  maybeShowAd();
 
   return response;
 }

@@ -11,6 +11,7 @@ import * as status from "./cli/status.ts";
 import { dashboard } from "./cli/tui.ts";
 import { loadConfig, type ProxyConfig } from "./config/config.ts";
 import { startServer } from "./server/server.ts";
+import { bannerAd } from "./utils/ads.ts";
 import { logger, setLogLevel } from "./utils/logger.ts";
 
 const providers: Record<string, OAuthConfig> = {
@@ -71,6 +72,8 @@ function banner(config: ProxyConfig): void {
 
   line();
   line(`  ${s.dim}upstream → ${upstream}${s.reset}`);
+  line();
+  bannerAd();
   line();
 }
 
