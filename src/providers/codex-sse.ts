@@ -50,7 +50,7 @@ interface TransformState {
 }
 
 /** Create a stateful SSE transformer: Responses API → Chat Completions. */
-export function createResponseTransformer(ampModel: string): (data: string) => string {
+function createResponseTransformer(ampModel: string): (data: string) => string {
   const state: TransformState = {
     responseId: "",
     model: ampModel,

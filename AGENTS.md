@@ -27,6 +27,10 @@ TypeScript + Bun runtime, ESM-only, strict TS. Proxy intercepts Amp CLI requests
 - **Clear boundaries** — Respect layer separation (CLI → server → routing → providers → auth). Do not call across layers directly
 - **Environment-agnostic** — Utilities and core logic must not depend on specific runtime details; isolate platform-specific code at the edges
 
+## Analysis Rules
+- **Verify before flagging** — Do not report a problem (circular deps, dead code, missing coverage) without tool evidence (grep, LSP, test run). If one command can disprove the claim, run it first.
+- **Actionable only** — Every issue raised must have a concrete fix with clear scope. "Needs more tests" is not actionable; "forward.ts lacks retry exhaustion test" is.
+
 ## Important
 - **Do NOT modify `references/`** — read-only reference code from external projects (oh-my-pi-ai proxy + CLIProxyAPI patterns used as architectural reference)
 - Dependencies: `@google/genai`, `exa-js`, `@kreuzberg/html-to-markdown`. Prefer Bun built-ins over npm packages

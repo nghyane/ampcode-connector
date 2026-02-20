@@ -14,7 +14,7 @@ function getExa(apiKey: string): InstanceType<typeof Exa> {
   return _exa;
 }
 
-export interface SearchParams {
+interface SearchParams {
   objective: string;
   searchQueries?: string[];
   maxResults?: number;

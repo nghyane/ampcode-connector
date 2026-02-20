@@ -5,7 +5,7 @@
 
 import type { QuotaPool } from "./cooldown.ts";
 
-export interface AffinityEntry {
+interface AffinityEntry {
   pool: QuotaPool;
   account: number;
   assignedAt: number;
@@ -16,7 +16,7 @@ const TTL_MS = 2 * 3600_000;
 /** Cleanup stale entries every 10 minutes. */
 const CLEANUP_INTERVAL_MS = 10 * 60_000;
 
-export class AffinityStore {
+class AffinityStore {
   private map = new Map<string, AffinityEntry>();
   private counts = new Map<string, number>();
   private cleanupTimer: Timer | null = null;

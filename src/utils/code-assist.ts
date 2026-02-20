@@ -10,7 +10,7 @@ interface WrapOptions {
 }
 
 /** Wrap a raw request body in the Cloud Code Assist envelope. */
-export function wrapRequest(opts: WrapOptions): string {
+function wrapRequest(opts: WrapOptions): string {
   return JSON.stringify({
     project: opts.projectId,
     model: opts.model,

@@ -60,7 +60,9 @@ export async function tokenFromAny(config: OAuthConfig): Promise<{ accessToken: 
     try {
       const refreshed = await refresh(config, c.refreshToken, account);
       return { accessToken: refreshed.accessToken, account };
-    } catch {}
+    } catch (err) {
+      logger.debug(`${config.providerName}:${account} refresh failed in tokenFromAny`, { error: String(err) });
+    }
   }
 
   return null;
@@ -178,10 +180,16 @@ async function exchange(config: OAuthConfig, params: Record<string, string>): Pr
 }
 
 function parseTokenFields(raw: Record<string, unknown>, config: OAuthConfig): Credentials {
+  if (typeof raw.access_token !== "string" || !raw.access_token) {
+    throw new Error(`${config.providerName} token response missing access_token`);
+  }
+  if (typeof raw.expires_in !== "number" || Number.isNaN(raw.expires_in)) {
+    throw new Error(`${config.providerName} token response missing or invalid expires_in`);
+  }
   const buffer = config.expiryBuffer !== false ? TOKEN_EXPIRY_BUFFER_MS : 0;
   return {
-    accessToken: raw.access_token as string,
+    accessToken: raw.access_token,
     refreshToken: (raw.refresh_token as string) ?? "",
-    expiresAt: Date.now() + (raw.expires_in as number) * 1000 - buffer,
+    expiresAt: Date.now() + raw.expires_in * 1000 - buffer,
   };
 }

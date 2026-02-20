@@ -51,10 +51,7 @@ export function encode(chunk: Chunk): string {
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 
-export function transform(
-  source: ReadableStream<Uint8Array>,
-  fn: (data: string) => string,
-): ReadableStream<Uint8Array> {
+function transform(source: ReadableStream<Uint8Array>, fn: (data: string) => string): ReadableStream<Uint8Array> {
   let buffer = "";
 
   const stream = new TransformStream<Uint8Array, Uint8Array>({

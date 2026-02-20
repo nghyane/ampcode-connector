@@ -38,8 +38,13 @@ export async function loadConfig(): Promise<ProxyConfig> {
   const apiKey = await resolveApiKey(file);
   const providers = asRecord(file?.providers);
 
+  const port = asNumber(file?.port) ?? DEFAULTS.port;
+  if (port < 1 || port > 65535) {
+    throw new Error(`Invalid port ${port}: must be between 1 and 65535`);
+  }
+
   return {
-    port: asNumber(file?.port) ?? DEFAULTS.port,
+    port,
     ampUpstreamUrl: asString(file?.ampUpstreamUrl) ?? DEFAULTS.ampUpstreamUrl,
     ampApiKey: apiKey,
     exaApiKey: asString(file?.exaApiKey) ?? process.env.EXA_API_KEY,

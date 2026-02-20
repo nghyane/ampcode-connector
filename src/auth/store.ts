@@ -6,6 +6,7 @@ import { Database, type Statement } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { logger } from "../utils/logger.ts";
 
 export interface Credentials {
   accessToken: string;
@@ -47,13 +48,7 @@ interface Statements {
 
 let _db: Database | null = null;
 let _stmts: Statements | null = null;
-let _dbPath = DEFAULT_DB_PATH;
-
-/** Override the database path (must be called before any store operation). */
-export function setDbPath(path: string): void {
-  _dbPath = path;
-}
-
+const _dbPath = DEFAULT_DB_PATH;
 function init() {
   if (_stmts) return _stmts;
 
@@ -92,16 +87,26 @@ function init() {
 export function get(provider: ProviderName, account = 0): Credentials | undefined {
   const row = init().get.get(provider, account);
   if (!row) return undefined;
-  return JSON.parse(row.data) as Credentials;
+  try {
+    return JSON.parse(row.data) as Credentials;
+  } catch (err) {
+    logger.warn(`Corrupt credentials for ${provider}:${account}, removing`, { error: String(err) });
+    init().delOne.run(provider, account);
+    return undefined;
+  }
 }
 
 export function getAll(provider: ProviderName): { account: number; credentials: Credentials }[] {
-  return init()
-    .getAll.all(provider)
-    .map((row) => ({
-      account: row.account,
-      credentials: JSON.parse(row.data) as Credentials,
-    }));
+  const results: { account: number; credentials: Credentials }[] = [];
+  for (const row of init().getAll.all(provider)) {
+    try {
+      results.push({ account: row.account, credentials: JSON.parse(row.data) as Credentials });
+    } catch (err) {
+      logger.warn(`Corrupt credentials for ${provider}:${row.account}, removing`, { error: String(err) });
+      init().delOne.run(provider, row.account);
+    }
+  }
+  return results;
 }
 
 export function save(provider: ProviderName, credentials: Credentials, account = 0): void {

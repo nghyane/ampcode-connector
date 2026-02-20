@@ -13,7 +13,7 @@ export const screen = {
 };
 
 /** Erase from cursor to end of line. */
-export const eol = `${ESC}K`;
+const eol = `${ESC}K`;
 
 export const s = {
   reset: `${ESC}0m`,

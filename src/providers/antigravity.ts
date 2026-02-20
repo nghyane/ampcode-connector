@@ -10,7 +10,7 @@ import { buildUrl, maybeWrap, withUnwrap } from "../utils/code-assist.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
 import type { Provider } from "./base.ts";
-import { denied, forward } from "./base.ts";
+import { denied, forward } from "./forward.ts";
 
 const endpoints = [ANTIGRAVITY_DAILY_ENDPOINT, AUTOPUSH_ENDPOINT, CODE_ASSIST_ENDPOINT];
 
@@ -33,7 +33,7 @@ export const provider: Provider = {
 
   accountCount: () => oauth.accountCount(config),
 
-  async forward(sub, body, originalHeaders, rewrite, account = 0) {
+  async forward(sub, body, _originalHeaders, rewrite, account = 0) {
     const accessToken = await oauth.token(config, account);
     if (!accessToken) return denied("Antigravity");
 
@@ -44,12 +44,8 @@ export const provider: Provider = {
       ...antigravityHeaders,
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
-      Accept: "text/event-stream",
+      Accept: body.stream ? "text/event-stream" : "application/json",
     };
-
-    const anthropicBeta = originalHeaders.get("anthropic-beta");
-    if (anthropicBeta) headers["anthropic-beta"] = anthropicBeta;
-
     const gemini = path.gemini(sub);
     const action = gemini?.action ?? "generateContent";
     const model = gemini?.model === "gemini-3-flash-preview" ? "gemini-3-flash" : (gemini?.model ?? "");

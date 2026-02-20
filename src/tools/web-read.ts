@@ -3,13 +3,13 @@
 import { convert, JsPreprocessingPreset } from "@kreuzberg/html-to-markdown";
 import { logger } from "../utils/logger.ts";
 
-export interface WebReadParams {
+interface WebReadParams {
   url: string;
   objective?: string;
   forceRefetch?: boolean;
 }
 
-export type WebReadResult =
+type WebReadResult =
   | { ok: true; result: { excerpts: string[] } | { fullContent: string } }
   | { ok: false; error: { code: string; message: string } };
 

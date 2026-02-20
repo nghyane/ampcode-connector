@@ -2,7 +2,7 @@
 
 import { logger } from "../utils/logger.ts";
 
-export interface CallbackResult {
+interface CallbackResult {
   code: string;
   state: string;
 }

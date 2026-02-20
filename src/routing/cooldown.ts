@@ -22,7 +22,7 @@ const EXHAUSTED_CONSECUTIVE = 3;
 /** Default burst cooldown when no Retry-After header. */
 const DEFAULT_BURST_S = 30;
 
-export class CooldownTracker {
+class CooldownTracker {
   private entries = new Map<string, CooldownEntry>();
 
   private key(pool: QuotaPool, account: number): string {

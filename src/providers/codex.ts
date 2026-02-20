@@ -10,8 +10,8 @@ import * as store from "../auth/store.ts";
 import { CODEX_BASE_URL, codexHeaders, codexHeaderValues, codexPathMap } from "../constants.ts";
 import { fromBase64url } from "../utils/encoding.ts";
 import type { Provider } from "./base.ts";
-import { denied, forward } from "./base.ts";
 import { transformCodexResponse } from "./codex-sse.ts";
+import { denied, forward } from "./forward.ts";
 
 const DEFAULT_INSTRUCTIONS = "You are an expert coding assistant.";
 

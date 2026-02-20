@@ -11,7 +11,7 @@ import {
   stainlessHeaders,
 } from "../constants.ts";
 import type { Provider } from "./base.ts";
-import { denied, forward } from "./base.ts";
+import { denied, forward } from "./forward.ts";
 
 export const provider: Provider = {
   name: "Anthropic",

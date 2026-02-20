@@ -38,7 +38,6 @@ export const OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 export const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
-export const OAUTH_CALLBACK_TIMEOUT_MS = 120_000;
 export const CLAUDE_CODE_VERSION = "2.1.39";
 
 export const stainlessHeaders: Readonly<Record<string, string>> = {
@@ -48,8 +47,8 @@ export const stainlessHeaders: Readonly<Record<string, string>> = {
   "X-Stainless-Package-Version": "0.73.0",
   "X-Stainless-Runtime": "node",
   "X-Stainless-Lang": "js",
-  "X-Stainless-Arch": "arm64",
-  "X-Stainless-Os": "MacOS",
+  "X-Stainless-Arch": process.arch,
+  "X-Stainless-Os": process.platform === "darwin" ? "MacOS" : process.platform === "win32" ? "Windows" : "Linux",
   "X-Stainless-Timeout": "600",
 };
 

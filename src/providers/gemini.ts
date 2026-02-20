@@ -12,7 +12,7 @@ import { buildUrl, maybeWrap, withUnwrap } from "../utils/code-assist.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
 import type { Provider } from "./base.ts";
-import { denied, forward } from "./base.ts";
+import { denied, forward } from "./forward.ts";
 
 const geminiHeaders: Readonly<Record<string, string>> = {
   "User-Agent": "google-cloud-sdk vscode_cloudshelleditor/0.1",
@@ -44,7 +44,7 @@ export const provider: Provider = {
       ...geminiHeaders,
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
-      Accept: "text/event-stream",
+      Accept: body.stream ? "text/event-stream" : "application/json",
     };
 
     const gemini = path.gemini(sub);
