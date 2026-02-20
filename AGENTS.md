@@ -20,15 +20,12 @@ TypeScript + Bun runtime, ESM-only, strict TS. Proxy intercepts Amp CLI requests
 - No external frameworks — uses Bun built-ins (Bun.serve, Bun.YAML, fetch)
 
 ## Design Principles
-- **Specs before code** — New features must have a brief design/spec written (in PR description or doc) before implementation begins
 - **Strict type safety** — Never bypass type errors; no implicit `any`. Fix types, don't cast around them
-- **Immutable data** — Do not mutate shared data structures directly; prefer creating new copies or using immutable patterns
-- **Pure functions** — Extract logic into pure functions (input → output, no side effects) for testability and clarity
 - **Clear boundaries** — Respect layer separation (CLI → server → routing → providers → auth). Do not call across layers directly
 - **Environment-agnostic** — Utilities and core logic must not depend on specific runtime details; isolate platform-specific code at the edges
 
 ## Analysis Rules
-- **Verify before flagging** — Do not report a problem (circular deps, dead code, missing coverage) without tool evidence (grep, LSP, test run). If one command can disprove the claim, run it first.
+- **Verify before flagging** — Do not report a problem (circular deps, dead code, missing coverage) without tool evidence (`Grep` tool, `bun run check`, test runs). If one check can disprove the claim, run it first.
 - **Actionable only** — Every issue raised must have a concrete fix with clear scope. "Needs more tests" is not actionable; "forward.ts lacks retry exhaustion test" is.
 
 ## Important
