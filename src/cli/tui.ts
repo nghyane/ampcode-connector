@@ -16,6 +16,7 @@ const oauthConfigs: Record<ProviderName, OAuthConfig> = {
 const ICON: Record<ConnectionStatus, string> = {
   connected: `${s.green}●${s.reset}`,
   expired: `${s.yellow}●${s.reset}`,
+  disabled: `${s.red}●${s.reset}`,
   disconnected: `${s.dim}○${s.reset}`,
 };
 
@@ -109,7 +110,9 @@ function formatInfo(a: AccountStatus): string {
   if (a.status === "disconnected") return `${s.dim}—${s.reset}`;
 
   const parts: string[] = [];
-  parts.push(a.status === "connected" ? `${s.green}connected${s.reset}` : `${s.yellow}expired${s.reset}`);
+  if (a.status === "connected") parts.push(`${s.green}connected${s.reset}`);
+  else if (a.status === "disabled") parts.push(`${s.red}disabled${s.reset}`);
+  else parts.push(`${s.yellow}expired${s.reset}`);
   if (a.expiresAt && a.status === "connected") parts.push(`${s.dim}${status.remaining(a.expiresAt)}${s.reset}`);
   if (a.email) parts.push(`${s.dim}${a.email}${s.reset}`);
   return parts.join(`${s.dim} · ${s.reset}`);

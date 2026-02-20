@@ -12,6 +12,8 @@ interface CooldownEntry {
 }
 
 /** When detected as exhausted, cooldown for this long. */
+/** 403 = account disabled/revoked — long cooldown. */
+const FORBIDDEN_COOLDOWN_MS = 24 * 3600_000;
 const EXHAUSTED_COOLDOWN_MS = 2 * 3600_000;
 /** Retry-After threshold (seconds) above which we consider quota exhausted. */
 const EXHAUSTED_THRESHOLD_S = 300;
@@ -63,6 +65,13 @@ export class CooldownTracker {
     }
 
     this.entries.set(k, entry);
+  }
+
+  /** 403 = account forbidden/revoked. Immediately disable for 24h. */
+  record403(pool: QuotaPool, account: number): void {
+    const k = this.key(pool, account);
+    this.entries.set(k, { until: Date.now() + FORBIDDEN_COOLDOWN_MS, exhausted: true, consecutive429: 0 });
+    logger.warn(`Account disabled (403): ${k}`, { cooldownHours: FORBIDDEN_COOLDOWN_MS / 3600_000 });
   }
 
   recordSuccess(pool: QuotaPool, account: number): void {

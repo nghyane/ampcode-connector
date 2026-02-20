@@ -52,7 +52,7 @@ export const provider: Provider = {
 
     const gemini = path.gemini(sub);
     const action = gemini?.action ?? "generateContent";
-    const model = gemini?.model ?? "";
+    const model = gemini?.model === "gemini-3-flash-preview" ? "gemini-3-flash" : (gemini?.model ?? "");
     const requestBody = maybeWrap(body.parsed, body.forwardBody, projectId, model, {
       userAgent: "antigravity",
       requestIdPrefix: "agent",
@@ -60,7 +60,7 @@ export const provider: Provider = {
     });
     const unwrapThenRewrite = withUnwrap(rewrite);
 
-    return tryEndpoints(requestBody, body.stream, headers, action, unwrapThenRewrite);
+    return tryEndpoints(requestBody, body.stream, headers, action, unwrapThenRewrite, creds?.email);
   },
 };
 
@@ -70,13 +70,14 @@ async function tryEndpoints(
   headers: Record<string, string>,
   action: string,
   rewrite?: (data: string) => string,
+  email?: string,
 ): Promise<Response> {
   let lastError: Error | null = null;
 
   for (const endpoint of endpoints) {
     const url = buildUrl(endpoint, action);
     try {
-      const response = await forward({ url, body, streaming, headers, providerName: "Antigravity", rewrite });
+      const response = await forward({ url, body, streaming, headers, providerName: "Antigravity", rewrite, email });
       if (response.status < 500) return response;
       lastError = new Error(`${endpoint} returned ${response.status}`);
       logger.debug("Endpoint 5xx, trying next", { provider: "Antigravity" });

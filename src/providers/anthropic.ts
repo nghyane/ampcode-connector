@@ -32,6 +32,7 @@ export const provider: Provider = {
       streaming: body.stream,
       providerName: "Anthropic",
       rewrite,
+      email: store.get("anthropic", account)?.email,
       headers: {
         ...stainlessHeaders,
         Accept: body.stream ? "text/event-stream" : "application/json",

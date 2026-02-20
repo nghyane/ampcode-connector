@@ -5,6 +5,7 @@ import type { ProxyConfig } from "../config/config.ts";
 import * as rewriter from "../proxy/rewriter.ts";
 import * as upstream from "../proxy/upstream.ts";
 import { affinity } from "../routing/affinity.ts";
+import { cooldown } from "../routing/cooldown.ts";
 import { tryReroute, tryWithCachePreserve } from "../routing/retry.ts";
 import { recordSuccess, routeRequest } from "../routing/router.ts";
 import { handleInternal, isLocalMethod } from "../tools/internal.ts";
@@ -31,7 +32,7 @@ export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
         logger.error("Unhandled server error", { error: String(err) });
         return Response.json({ error: "Internal proxy error" }, { status });
       } finally {
-        logger.info(`${req.method} ${url.pathname} ${status}`, { duration: Date.now() - startTime });
+        logger.info(`${req.method} ${url.pathname}${url.search} ${status}`, { duration: Date.now() - startTime });
       }
     },
   });
@@ -120,6 +121,10 @@ async function handleProvider(
         );
         response = rerouted ?? (await fallbackUpstream(req, body, config));
       }
+    } else if (handlerResponse.status === 403 && route.pool) {
+      cooldown.record403(route.pool, route.account);
+      if (threadId) affinity.clear(threadId, providerName);
+      response = await fallbackUpstream(req, body, config);
     } else if (handlerResponse.status === 401) {
       logger.debug("Local provider denied, falling back to upstream");
       response = await fallbackUpstream(req, body, config);

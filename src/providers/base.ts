@@ -26,6 +26,7 @@ interface ForwardOptions {
   headers: Record<string, string>;
   providerName: string;
   rewrite?: (data: string) => string;
+  email?: string;
 }
 
 const RETRYABLE_STATUS = new Set([408, 500, 502, 503, 504]);
@@ -64,7 +65,8 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
 
     if (!response.ok) {
       const text = await response.text();
-      logger.error(`${opts.providerName} API error (${response.status})`, { error: text.slice(0, 200) });
+      const ctx = opts.email ? ` account=${opts.email}` : "";
+      logger.error(`${opts.providerName} API error (${response.status})${ctx}`, { error: text.slice(0, 200) });
       return new Response(text, { status: response.status, headers: { "Content-Type": contentType } });
     }
 

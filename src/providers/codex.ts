@@ -41,6 +41,7 @@ export const provider: Provider = {
       providerName: "OpenAI Codex",
       // Skip generic rewrite when we need full response transform
       rewrite: needsResponseTransform ? undefined : rewrite,
+      email: store.get("codex", account)?.email,
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,

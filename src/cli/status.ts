@@ -1,7 +1,8 @@
 import type { Credentials, ProviderName } from "../auth/store.ts";
 import * as store from "../auth/store.ts";
+import { cooldown, type QuotaPool } from "../routing/cooldown.ts";
 
-export type ConnectionStatus = "connected" | "expired" | "disconnected";
+export type ConnectionStatus = "connected" | "expired" | "disabled" | "disconnected";
 
 export interface AccountStatus {
   account: number;
@@ -23,8 +24,16 @@ const PROVIDERS: { name: ProviderName; label: string; sublabel?: string }[] = [
   { name: "google", label: "Google", sublabel: "Gemini CLI + Antigravity" },
 ];
 
-function connectionOf(creds: Credentials): ConnectionStatus {
+const POOL_MAP: Record<ProviderName, QuotaPool[]> = {
+  anthropic: ["anthropic"],
+  codex: ["codex"],
+  google: ["gemini", "antigravity"],
+};
+
+function connectionOf(name: ProviderName, account: number, creds: Credentials): ConnectionStatus {
   if (!creds.refreshToken) return "disconnected";
+  const pools = POOL_MAP[name];
+  if (pools.some((p) => cooldown.isExhausted(p, account))) return "disabled";
   return store.fresh(creds) ? "connected" : "expired";
 }
 
@@ -35,7 +44,7 @@ export function all(): ProviderStatus[] {
     sublabel,
     accounts: store.getAll(name).map((e) => ({
       account: e.account,
-      status: connectionOf(e.credentials),
+      status: connectionOf(name, e.account, e.credentials),
       email: e.credentials.email,
       expiresAt: e.credentials.expiresAt,
     })),

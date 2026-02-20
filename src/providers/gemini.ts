@@ -67,6 +67,7 @@ export const provider: Provider = {
       headers,
       providerName: "Gemini CLI",
       rewrite: unwrapThenRewrite,
+      email: store.get("google", account)?.email,
     });
   },
 };

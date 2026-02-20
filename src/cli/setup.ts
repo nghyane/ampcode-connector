@@ -131,6 +131,7 @@ export async function setup(): Promise<void> {
 
   for (const p of providers) {
     const connected = p.accounts.filter((a) => a.status === "connected");
+    const disabled = p.accounts.filter((a) => a.status === "disabled");
     const total = p.accounts.filter((a) => a.status !== "disconnected");
 
     if (connected.length > 0) {
@@ -140,7 +141,10 @@ export async function setup(): Promise<void> {
         .filter(Boolean)
         .join(", ");
       const info = emails ? `  ${s.dim}${emails}${s.reset}` : "";
-      line(`  ${p.label.padEnd(16)} ${s.green}${connected.length} account(s)${s.reset}${info}`);
+      const disabledInfo = disabled.length > 0 ? `  ${s.red}${disabled.length} disabled${s.reset}` : "";
+      line(`  ${p.label.padEnd(16)} ${s.green}${connected.length} account(s)${s.reset}${info}${disabledInfo}`);
+    } else if (disabled.length > 0) {
+      line(`  ${p.label.padEnd(16)} ${s.red}${disabled.length} disabled${s.reset}`);
     } else if (total.length > 0) {
       line(`  ${p.label.padEnd(16)} ${s.yellow}${total.length} expired${s.reset}`);
     } else {
