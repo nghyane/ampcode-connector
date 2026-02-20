@@ -149,6 +149,7 @@ function transformForCodex(
   // Remove fields the Codex backend doesn't accept
   delete parsed.max_tokens;
   delete parsed.max_completion_tokens;
+  delete parsed.max_output_tokens;
   // Chat Completions fields not in Responses API
   delete parsed.frequency_penalty;
   delete parsed.logprobs;
