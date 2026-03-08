@@ -1,6 +1,7 @@
 /** Local handler for extractWebPageContent — fetches a URL, converts to Markdown, ranks by objective. */
 
-import { convert, JsPreprocessingPreset } from "@kreuzberg/html-to-markdown";
+import TurndownService from "turndown";
+import { gfm } from "turndown-plugin-gfm";
 import { logger } from "../utils/logger.ts";
 
 interface WebReadParams {
@@ -55,10 +56,9 @@ const CLIPPING = {
   EXCERPT_SEP_BYTES: 2, // "\n\n" separator
 } as const;
 
-const HTML_OPTIONS = {
-  skipImages: true,
-  preprocessing: { enabled: true, preset: JsPreprocessingPreset.Aggressive },
-};
+const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+turndown.use(gfm);
+turndown.remove(["script", "style", "img"]);
 
 // biome-ignore format: compact
 const STOP_WORDS = new Set(
@@ -141,7 +141,7 @@ function fetchError(message: string): FetchErr {
 
 function convertToMarkdown(raw: string, contentType: string): string {
   if (contentType.includes("text/html") || contentType.includes("application/xhtml")) {
-    return convert(raw, HTML_OPTIONS);
+    return turndown.turndown(raw);
   }
 
   if (contentType.includes("application/json")) {
