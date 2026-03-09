@@ -59,7 +59,7 @@ function banner(config: ProxyConfig): void {
 
   line();
   line(`  ${s.bold}ampcode-connector${s.reset}`);
-  line(`  ${s.dim}http://localhost:${config.port}${s.reset}`);
+  line(`  ${s.dim}http://${config.hostname}:${config.port}${s.reset}`);
   line();
 
   for (const p of providers) {

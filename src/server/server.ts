@@ -17,7 +17,7 @@ import { type ParsedBody, parseBody } from "./body.ts";
 export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
   const server = Bun.serve({
     port: config.port,
-    hostname: "localhost",
+    hostname: config.hostname,
     idleTimeout: 255, // seconds — LLM streaming responses can take minutes
 
     async fetch(req) {
@@ -38,7 +38,7 @@ export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
   });
 
   affinity.startCleanup();
-  logger.info(`ampcode-connector listening on http://localhost:${config.port}`);
+  logger.info(`ampcode-connector listening on http://${config.hostname}:${config.port}`);
 
   const shutdown = () => {
     logger.info("Shutting down...");

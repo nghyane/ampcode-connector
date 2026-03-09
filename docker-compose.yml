@@ -1,0 +1,12 @@
+services:
+  ampcode-connector:
+    build: .
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - credentials:/root/.ampcode-connector
+    restart: unless-stopped
+
+volumes:
+  credentials:

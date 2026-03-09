@@ -7,6 +7,7 @@ import type { LogLevel } from "../utils/logger.ts";
 import { logger } from "../utils/logger.ts";
 
 export interface ProxyConfig {
+  hostname: string;
   port: number;
   ampUpstreamUrl: string;
   ampApiKey?: string;
@@ -20,6 +21,7 @@ export interface ProxyConfig {
 }
 
 const DEFAULTS: ProxyConfig = {
+  hostname: "localhost",
   port: 8765,
   ampUpstreamUrl: DEFAULT_AMP_UPSTREAM_URL,
   logLevel: "info",
@@ -44,6 +46,7 @@ export async function loadConfig(): Promise<ProxyConfig> {
   }
 
   return {
+    hostname: asString(file?.hostname) ?? process.env.HOST ?? DEFAULTS.hostname,
     port,
     ampUpstreamUrl: asString(file?.ampUpstreamUrl) ?? DEFAULTS.ampUpstreamUrl,
     ampApiKey: apiKey,
