@@ -10,7 +10,7 @@ import * as store from "../auth/store.ts";
 import { CODEX_BASE_URL, codexHeaders, codexHeaderValues, codexPathMap } from "../constants.ts";
 import { fromBase64url } from "../utils/encoding.ts";
 import type { Provider } from "./base.ts";
-import { transformCodexResponse } from "./codex-sse.ts";
+import { bufferCodexResponse, transformCodexResponse } from "./codex-sse.ts";
 import { denied, forward } from "./forward.ts";
 
 const DEFAULT_INSTRUCTIONS = "You are an expert coding assistant.";
@@ -60,6 +60,9 @@ export const provider: Provider = {
 
     // Transform Responses API SSE → Chat Completions SSE when original was messages[] format
     if (needsResponseTransform && response.ok) {
+      if (!body.stream) {
+        return bufferCodexResponse(response, ampModel);
+      }
       return transformCodexResponse(response, ampModel);
     }
     return response;

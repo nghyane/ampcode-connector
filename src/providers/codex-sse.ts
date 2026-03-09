@@ -23,6 +23,7 @@ interface Choice {
 interface Delta {
   role?: string;
   content?: string;
+  reasoning_content?: string;
   tool_calls?: ToolCallDelta[];
 }
 
@@ -38,6 +39,7 @@ interface Usage {
   completion_tokens: number;
   total_tokens: number;
   prompt_tokens_details?: { cached_tokens: number };
+  completion_tokens_details?: { reasoning_tokens: number };
 }
 
 interface TransformState {
@@ -128,10 +130,24 @@ function createResponseTransformer(ampModel: string): (data: string) => string {
         return serializeFinish(state, finishReason, usage);
       }
 
-      // Reasoning/thinking delta — emit as content (Amp shows thinking)
+      // Response incomplete — emit finish_reason "length" + usage
+      case "response.incomplete": {
+        const resp = parsed.response as Record<string, unknown>;
+        const usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
+        return serializeFinish(state, "length", usage);
+      }
+
+      // Response failed — emit finish_reason "stop" (error)
+      case "response.failed": {
+        const resp = parsed.response as Record<string, unknown>;
+        const usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
+        return serializeFinish(state, "stop", usage);
+      }
+
+      // Reasoning/thinking delta — emit as reasoning_content (separate from content)
       case "response.reasoning_summary_text.delta": {
         const delta = parsed.delta as string;
-        if (delta) return serialize(state, { content: delta });
+        if (delta) return serialize(state, { reasoning_content: delta });
         return "";
       }
 
@@ -180,11 +196,13 @@ function extractUsage(raw: Record<string, unknown> | undefined): Usage | undefin
   const input = (raw.input_tokens as number) ?? 0;
   const output = (raw.output_tokens as number) ?? 0;
   const cached = (raw.input_tokens_details as Record<string, unknown>)?.cached_tokens as number | undefined;
+  const reasoning = (raw.output_tokens_details as Record<string, unknown>)?.reasoning_tokens as number | undefined;
   return {
     prompt_tokens: input,
     completion_tokens: output,
     total_tokens: input + output,
     ...(cached !== undefined ? { prompt_tokens_details: { cached_tokens: cached } } : {}),
+    ...(reasoning !== undefined ? { completion_tokens_details: { reasoning_tokens: reasoning } } : {}),
   };
 }
 
@@ -203,6 +221,161 @@ export function transformCodexResponse(response: Response, ampModel: string): Re
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
     },
+  });
+}
+
+/** Buffer a Codex SSE response into a single Chat Completions JSON response.
+ *  Used when the client requests stream: false but the backend forces streaming. */
+export async function bufferCodexResponse(response: Response, ampModel: string): Promise<Response> {
+  if (!response.body) return response;
+
+  const state: TransformState = {
+    responseId: "",
+    model: ampModel,
+    created: Math.floor(Date.now() / 1000),
+    toolCallIndex: 0,
+    toolCallIds: new Map(),
+  };
+
+  let content = "";
+  let reasoningContent = "";
+  const toolCalls: Map<number, { id: string; type: string; function: { name: string; arguments: string } }> = new Map();
+  let finishReason = "stop";
+  let usage: Usage | undefined;
+
+  const decoder = new TextDecoder();
+  let sseBuffer = "";
+
+  const reader = response.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    sseBuffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n");
+    const boundary = sseBuffer.lastIndexOf("\n\n");
+    if (boundary === -1) continue;
+
+    const complete = sseBuffer.slice(0, boundary + 2);
+    sseBuffer = sseBuffer.slice(boundary + 2);
+
+    for (const chunk of sse.parse(complete)) {
+      if (chunk.data === "[DONE]") continue;
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(chunk.data) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+
+      const eventType = parsed.type as string | undefined;
+      if (!eventType) continue;
+
+      if (eventType === "response.created") {
+        const resp = parsed.response as Record<string, unknown>;
+        state.responseId = (resp?.id as string) ?? state.responseId;
+        state.created = (resp?.created_at as number) ?? state.created;
+        continue;
+      }
+
+      switch (eventType) {
+        case "response.output_text.delta": {
+          const delta = parsed.delta as string;
+          if (delta) content += delta;
+          break;
+        }
+
+        case "response.reasoning_summary_text.delta": {
+          const delta = parsed.delta as string;
+          if (delta) reasoningContent += delta;
+          break;
+        }
+
+        case "response.output_item.added": {
+          const item = parsed.item as Record<string, unknown>;
+          if (item?.type === "function_call") {
+            const callId = item.call_id as string;
+            const name = item.name as string;
+            const idx = state.toolCallIndex++;
+            state.toolCallIds.set(callId, idx);
+            toolCalls.set(idx, { id: callId, type: "function", function: { name, arguments: "" } });
+          }
+          break;
+        }
+
+        case "response.function_call_arguments.delta": {
+          const delta = parsed.delta as string;
+          const callId = parsed.call_id as string | undefined;
+          if (delta) {
+            const idx = callId ? (state.toolCallIds.get(callId) ?? 0) : 0;
+            const tc = toolCalls.get(idx);
+            if (tc) tc.function.arguments += delta;
+          }
+          break;
+        }
+
+        case "response.completed": {
+          const resp = parsed.response as Record<string, unknown>;
+          usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
+          finishReason = state.toolCallIndex > 0 ? "tool_calls" : "stop";
+          break;
+        }
+
+        case "response.incomplete": {
+          const resp = parsed.response as Record<string, unknown>;
+          usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
+          finishReason = "length";
+          break;
+        }
+
+        case "response.failed": {
+          const resp = parsed.response as Record<string, unknown>;
+          usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
+          break;
+        }
+      }
+    }
+  }
+
+  // Process remaining buffer
+  if (sseBuffer.trim()) {
+    for (const chunk of sse.parse(sseBuffer)) {
+      if (chunk.data === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(chunk.data) as Record<string, unknown>;
+        if (parsed.type === "response.completed") {
+          const resp = parsed.response as Record<string, unknown>;
+          usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
+          finishReason = state.toolCallIndex > 0 ? "tool_calls" : "stop";
+        }
+      } catch {
+        // skip
+      }
+    }
+  }
+
+  const message: Record<string, unknown> = { role: "assistant", content: content || null };
+  if (reasoningContent) {
+    message.reasoning_content = reasoningContent;
+  }
+  if (toolCalls.size > 0) {
+    message.tool_calls = Array.from(toolCalls.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([, tc]) => tc);
+  }
+
+  const result = {
+    id: `chatcmpl-${state.responseId}`,
+    object: "chat.completion",
+    created: state.created,
+    model: state.model,
+    choices: [{ index: 0, message, finish_reason: finishReason }],
+    ...(usage ? { usage } : {}),
+  };
+
+  return new Response(JSON.stringify(result), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
   });
 }
 
