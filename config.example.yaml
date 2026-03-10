@@ -1,11 +1,12 @@
 # ampcode-connector configuration
 # Copy to ./config.yaml or ~/.config/ampcode-connector/config.yaml
+# Amp CLI settings are managed at ~/.config/amp/settings.json (or AMP_SETTINGS_FILE)
 
 port: 8765
 logLevel: info
 
 # ampUpstreamUrl: https://ampcode.com
-# ampApiKey: ...          # or AMP_API_KEY env
+# ampApiKey: ...          # optional override; normally read from ~/.local/share/amp/secrets.json
 # exaApiKey: ...          # or EXA_API_KEY env (for web_search)
 
 providers:

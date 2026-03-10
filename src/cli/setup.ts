@@ -1,6 +1,6 @@
 /** Auto-configure Amp CLI to route through ampcode-connector. */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { loadConfig } from "../config/config.ts";
@@ -10,14 +10,26 @@ import * as status from "./status.ts";
 const AMP_SECRETS_DIR = join(homedir(), ".local", "share", "amp");
 const AMP_SECRETS_PATH = join(AMP_SECRETS_DIR, "secrets.json");
 
-const AMP_SETTINGS_PATHS = [
-  join(homedir(), ".config", "amp", "settings.json"),
-  join(homedir(), ".amp", "settings.json"),
-];
+const AMP_SETTINGS_PATH = join(homedir(), ".config", "amp", "settings.json");
+const AMP_LEGACY_SETTINGS_PATH = join(homedir(), ".amp", "settings.json");
 
-function ampSettingsPaths(): string[] {
+function ampSettingsPath(): string {
   const envPath = process.env.AMP_SETTINGS_FILE;
-  return envPath ? [envPath] : AMP_SETTINGS_PATHS;
+  return envPath || AMP_SETTINGS_PATH;
+}
+
+function warnLegacySettingsFile(): void {
+  if (process.env.AMP_SETTINGS_FILE || !existsSync(AMP_LEGACY_SETTINGS_PATH)) return;
+  try {
+    if (lstatSync(AMP_LEGACY_SETTINGS_PATH).isSymbolicLink()) return;
+  } catch {
+    return;
+  }
+
+  line(
+    `${s.yellow}!${s.reset} Legacy settings file detected at ${s.dim}${AMP_LEGACY_SETTINGS_PATH}${s.reset}. ` +
+      `Prefer a single source of truth at ${s.dim}${AMP_SETTINGS_PATH}${s.reset}.`,
+  );
 }
 
 function readJson(path: string): Record<string, unknown> {
@@ -88,14 +100,15 @@ export async function setup(): Promise<void> {
   line(`${s.bold}ampcode-connector setup${s.reset}`);
   line();
 
-  // Step 1: Configure amp.url in all settings files
-  for (const settingsPath of ampSettingsPaths()) {
-    const settings = readJson(settingsPath);
-    if (settings["amp.url"] === proxyUrl) continue;
+  // Step 1: Configure amp.url in canonical settings file
+  const settingsPath = ampSettingsPath();
+  const settings = readJson(settingsPath);
+  if (settings["amp.url"] !== proxyUrl) {
     settings["amp.url"] = proxyUrl;
     writeJson(settingsPath, settings);
   }
-  line(`${s.green}ok${s.reset} amp.url = ${s.cyan}${proxyUrl}${s.reset}`);
+  line(`${s.green}ok${s.reset} amp.url = ${s.cyan}${proxyUrl}${s.reset}  ${s.dim}${settingsPath}${s.reset}`);
+  warnLegacySettingsFile();
 
   // Step 2: Amp API key
   const existingKey = findAmpApiKey(proxyUrl);
