@@ -51,6 +51,19 @@ interface TransformState {
   toolCallIds: Map<string, number>;
 }
 
+/** Resolve tool call index from item_id or call_id, falling back to 0. */
+function lookupToolIndex(state: TransformState, itemId?: string, callId?: string): number {
+  if (itemId) {
+    const idx = state.toolCallIds.get(itemId);
+    if (idx !== undefined) return idx;
+  }
+  if (callId) {
+    const idx = state.toolCallIds.get(callId);
+    if (idx !== undefined) return idx;
+  }
+  return 0;
+}
+
 /** Create a stateful SSE transformer: Responses API → Chat Completions. */
 function createResponseTransformer(ampModel: string): (data: string) => string {
   const state: TransformState = {
@@ -93,9 +106,11 @@ function createResponseTransformer(ampModel: string): (data: string) => string {
         }
         if (item?.type === "function_call") {
           const callId = item.call_id as string;
+          const itemId = item.id as string | undefined;
           const name = item.name as string;
           const idx = state.toolCallIndex++;
           state.toolCallIds.set(callId, idx);
+          if (itemId) state.toolCallIds.set(itemId, idx);
           return serialize(state, {
             tool_calls: [{ index: idx, id: callId, type: "function", function: { name, arguments: "" } }],
           });
@@ -113,9 +128,10 @@ function createResponseTransformer(ampModel: string): (data: string) => string {
       // Function call arguments delta
       case "response.function_call_arguments.delta": {
         const delta = parsed.delta as string;
+        const itemId = parsed.item_id as string | undefined;
         const callId = parsed.call_id as string | undefined;
         if (delta) {
-          const idx = callId ? (state.toolCallIds.get(callId) ?? 0) : 0;
+          const idx = lookupToolIndex(state, itemId, callId);
           return serialize(state, { tool_calls: [{ index: idx, function: { arguments: delta } }] });
         }
         return "";
@@ -337,9 +353,11 @@ export async function bufferCodexResponse(response: Response, ampModel: string):
           const item = parsed.item as Record<string, unknown>;
           if (item?.type === "function_call") {
             const callId = item.call_id as string;
+            const itemId = item.id as string | undefined;
             const name = item.name as string;
             const idx = state.toolCallIndex++;
             state.toolCallIds.set(callId, idx);
+            if (itemId) state.toolCallIds.set(itemId, idx);
             toolCalls.set(idx, { id: callId, type: "function", function: { name, arguments: "" } });
           }
           break;
@@ -347,9 +365,10 @@ export async function bufferCodexResponse(response: Response, ampModel: string):
 
         case "response.function_call_arguments.delta": {
           const delta = parsed.delta as string;
+          const itemId = parsed.item_id as string | undefined;
           const callId = parsed.call_id as string | undefined;
           if (delta) {
-            const idx = callId ? (state.toolCallIds.get(callId) ?? 0) : 0;
+            const idx = lookupToolIndex(state, itemId, callId);
             const tc = toolCalls.get(idx);
             if (tc) tc.function.arguments += delta;
           }
@@ -411,18 +430,21 @@ export async function bufferCodexResponse(response: Response, ampModel: string):
           const item = parsed.item as Record<string, unknown>;
           if (item?.type === "function_call") {
             const callId = item.call_id as string;
+            const itemId = item.id as string | undefined;
             const name = item.name as string;
             const idx = state.toolCallIndex++;
             state.toolCallIds.set(callId, idx);
+            if (itemId) state.toolCallIds.set(itemId, idx);
             toolCalls.set(idx, { id: callId, type: "function", function: { name, arguments: "" } });
           }
           break;
         }
         case "response.function_call_arguments.delta": {
           const delta = parsed.delta as string;
+          const itemId = parsed.item_id as string | undefined;
           const callId = parsed.call_id as string | undefined;
           if (delta) {
-            const idx = callId ? (state.toolCallIds.get(callId) ?? 0) : 0;
+            const idx = lookupToolIndex(state, itemId, callId);
             const tc = toolCalls.get(idx);
             if (tc) tc.function.arguments += delta;
           }
