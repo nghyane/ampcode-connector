@@ -135,16 +135,22 @@ function transformForCodex(
     fixOrphanOutputs(parsed.input as Record<string, unknown>[]);
   }
 
-  // Reasoning config — defaults match reference behavior
+  // Reasoning config — merge with caller-provided values, defaults match reference behavior
   const model = (parsed.model as string) ?? "";
+  const existingReasoning = (parsed.reasoning as Record<string, unknown>) ?? {};
   parsed.reasoning = {
-    effort: clampReasoningEffort(model, "high"),
-    summary: "auto",
+    effort: clampReasoningEffort(model, (existingReasoning.effort as string) ?? "high"),
+    summary: existingReasoning.summary ?? "auto",
   };
 
-  parsed.text = { verbosity: "medium" };
+  const existingText = (parsed.text as Record<string, unknown>) ?? {};
+  parsed.text = { ...existingText, verbosity: existingText.verbosity ?? "medium" };
 
-  parsed.include = ["reasoning.encrypted_content"];
+  const existingInclude = Array.isArray(parsed.include) ? (parsed.include as string[]) : [];
+  if (!existingInclude.includes("reasoning.encrypted_content")) {
+    existingInclude.push("reasoning.encrypted_content");
+  }
+  parsed.include = existingInclude;
 
   if (promptCacheKey) {
     parsed.prompt_cache_key = promptCacheKey;
@@ -164,6 +170,23 @@ function transformForCodex(
   delete parsed.stop;
   delete parsed.logit_bias;
   delete parsed.response_format;
+
+  // Normalize tools[] for Responses API: flatten function.{name,description,parameters,strict} to top-level
+  if (Array.isArray(parsed.tools)) {
+    parsed.tools = (parsed.tools as Record<string, unknown>[]).map((tool) => {
+      if (tool.type === "function" && tool.function && typeof tool.function === "object") {
+        const fn = tool.function as Record<string, unknown>;
+        return {
+          type: "function",
+          name: fn.name,
+          description: fn.description,
+          parameters: fn.parameters,
+          ...(fn.strict !== undefined ? { strict: fn.strict } : {}),
+        };
+      }
+      return tool;
+    });
+  }
 
   // Normalize tool_choice for Responses API
   if (parsed.tool_choice !== undefined && parsed.tool_choice !== null) {
@@ -236,7 +259,7 @@ function convertMessages(messages: ChatMessage[]): { instructions: string | null
         input.push({
           type: "function_call_output",
           call_id: msg.tool_call_id,
-          output: textOf(msg.content) ?? "",
+          output: stringifyContent(msg.content),
         });
         break;
     }
@@ -263,6 +286,18 @@ function convertUserContent(content: unknown): unknown[] {
     });
   }
   return [{ type: "input_text", text: String(content) }];
+}
+
+/** Convert content to string, with JSON fallback for non-text values. */
+function stringifyContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  const text = textOf(content);
+  if (text !== null) return text;
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content ?? "");
+  }
 }
 
 /** Extract text from content (string or array). */

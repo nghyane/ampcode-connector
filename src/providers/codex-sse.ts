@@ -62,7 +62,7 @@ function createResponseTransformer(ampModel: string): (data: string) => string {
   };
 
   return (data: string): string => {
-    if (data === "[DONE]") return data;
+    if (data === "[DONE]") return "";
 
     let parsed: Record<string, unknown>;
     try {
@@ -130,18 +130,26 @@ function createResponseTransformer(ampModel: string): (data: string) => string {
         return serializeFinish(state, finishReason, usage);
       }
 
-      // Response incomplete — emit finish_reason "length" + usage
+      // Response incomplete — inspect reason to determine finish_reason
       case "response.incomplete": {
         const resp = parsed.response as Record<string, unknown>;
         const usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
-        return serializeFinish(state, "length", usage);
+        const finishReason = incompleteReason(resp);
+        return serializeFinish(state, finishReason, usage);
       }
 
-      // Response failed — emit finish_reason "stop" (error)
+      // Response failed — emit error content so the client sees the failure
       case "response.failed": {
         const resp = parsed.response as Record<string, unknown>;
         const usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
-        return serializeFinish(state, "stop", usage);
+        const errorMsg = extractErrorMessage(resp);
+        let chunks = "";
+        if (errorMsg) {
+          chunks = serialize(state, { role: "assistant", content: `[Error] ${errorMsg}` });
+          chunks += "\n\n";
+        }
+        chunks += serializeFinish(state, "stop", usage);
+        return chunks;
       }
 
       // Reasoning/thinking delta — emit as reasoning_content (separate from content)
@@ -191,6 +199,28 @@ function serializeFinish(state: TransformState, finishReason: string, usage?: Us
   return JSON.stringify(chunk);
 }
 
+/** Map Responses API incomplete reason → Chat Completions finish_reason. */
+function incompleteReason(resp: Record<string, unknown> | undefined): string {
+  if (!resp) return "length";
+  const reason = resp.incomplete_details as Record<string, unknown> | undefined;
+  const type = reason?.reason as string | undefined;
+  if (type === "max_output_tokens" || type === "max_tokens") return "length";
+  if (type === "content_filter") return "content_filter";
+  return "length";
+}
+
+/** Extract a human-readable error message from a failed response. */
+function extractErrorMessage(resp: Record<string, unknown> | undefined): string | null {
+  if (!resp) return null;
+  const error = resp.error as Record<string, unknown> | undefined;
+  if (!error) return null;
+  const message = error.message as string | undefined;
+  const code = error.code as string | undefined;
+  if (message) return code ? `${code}: ${message}` : message;
+  if (code) return code;
+  return null;
+}
+
 function extractUsage(raw: Record<string, unknown> | undefined): Usage | undefined {
   if (!raw) return undefined;
   const input = (raw.input_tokens as number) ?? 0;
@@ -206,6 +236,15 @@ function extractUsage(raw: Record<string, unknown> | undefined): Usage | undefin
   };
 }
 
+const FORWARDED_HEADERS = [
+  "x-request-id",
+  "request-id",
+  "x-ratelimit-limit-requests",
+  "x-ratelimit-remaining-requests",
+  "x-ratelimit-limit-tokens",
+  "x-ratelimit-remaining-tokens",
+] as const;
+
 /** Wrap a Codex SSE response with the Responses → Chat Completions transformer.
  *  Strips Responses API event names so output looks like standard Chat Completions SSE. */
 export function transformCodexResponse(response: Response, ampModel: string): Response {
@@ -214,14 +253,17 @@ export function transformCodexResponse(response: Response, ampModel: string): Re
   const transformer = createResponseTransformer(ampModel);
   const body = transformStream(response.body, transformer);
 
-  return new Response(body, {
-    status: response.status,
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  };
+  for (const name of FORWARDED_HEADERS) {
+    const value = response.headers.get(name);
+    if (value) headers[name] = value;
+  }
+
+  return new Response(body, { status: response.status, headers });
 }
 
 /** Buffer a Codex SSE response into a single Chat Completions JSON response.
@@ -324,32 +366,87 @@ export async function bufferCodexResponse(response: Response, ampModel: string):
         case "response.incomplete": {
           const resp = parsed.response as Record<string, unknown>;
           usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
-          finishReason = "length";
+          finishReason = incompleteReason(resp);
           break;
         }
 
         case "response.failed": {
           const resp = parsed.response as Record<string, unknown>;
           usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
+          const errorMsg = extractErrorMessage(resp);
+          if (errorMsg) content += `[Error] ${errorMsg}`;
           break;
         }
       }
     }
   }
 
-  // Process remaining buffer
+  // Process remaining buffer — reuse the same event handling as main loop
   if (sseBuffer.trim()) {
     for (const chunk of sse.parse(sseBuffer)) {
       if (chunk.data === "[DONE]") continue;
+
+      let parsed: Record<string, unknown>;
       try {
-        const parsed = JSON.parse(chunk.data) as Record<string, unknown>;
-        if (parsed.type === "response.completed") {
+        parsed = JSON.parse(chunk.data) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+
+      const eventType = parsed.type as string | undefined;
+      if (!eventType) continue;
+
+      switch (eventType) {
+        case "response.output_text.delta": {
+          const delta = parsed.delta as string;
+          if (delta) content += delta;
+          break;
+        }
+        case "response.reasoning_summary_text.delta": {
+          const delta = parsed.delta as string;
+          if (delta) reasoningContent += delta;
+          break;
+        }
+        case "response.output_item.added": {
+          const item = parsed.item as Record<string, unknown>;
+          if (item?.type === "function_call") {
+            const callId = item.call_id as string;
+            const name = item.name as string;
+            const idx = state.toolCallIndex++;
+            state.toolCallIds.set(callId, idx);
+            toolCalls.set(idx, { id: callId, type: "function", function: { name, arguments: "" } });
+          }
+          break;
+        }
+        case "response.function_call_arguments.delta": {
+          const delta = parsed.delta as string;
+          const callId = parsed.call_id as string | undefined;
+          if (delta) {
+            const idx = callId ? (state.toolCallIds.get(callId) ?? 0) : 0;
+            const tc = toolCalls.get(idx);
+            if (tc) tc.function.arguments += delta;
+          }
+          break;
+        }
+        case "response.completed": {
           const resp = parsed.response as Record<string, unknown>;
           usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
           finishReason = state.toolCallIndex > 0 ? "tool_calls" : "stop";
+          break;
         }
-      } catch {
-        // skip
+        case "response.incomplete": {
+          const resp = parsed.response as Record<string, unknown>;
+          usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
+          finishReason = incompleteReason(resp);
+          break;
+        }
+        case "response.failed": {
+          const resp = parsed.response as Record<string, unknown>;
+          usage = extractUsage(resp?.usage as Record<string, unknown> | undefined);
+          const errorMsg = extractErrorMessage(resp);
+          if (errorMsg) content += `[Error] ${errorMsg}`;
+          break;
+        }
       }
     }
   }
