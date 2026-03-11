@@ -36,18 +36,8 @@ export async function token(config: OAuthConfig, account = 0): Promise<string | 
 
   if (store.fresh(creds)) return creds.accessToken;
 
-  try {
-    return (await refresh(config, creds.refreshToken, account)).accessToken;
-  } catch (err) {
-    logger.warn(`Token refresh failed for ${config.providerName}:${account}, retrying...`, { error: String(err) });
-    try {
-      await Bun.sleep(1000);
-      return (await refresh(config, creds.refreshToken, account)).accessToken;
-    } catch (retryErr) {
-      logger.error(`Token refresh retry failed for ${config.providerName}:${account}`, { error: String(retryErr) });
-      return null;
-    }
-  }
+  const refreshed = await refreshWithRetry(config, creds.refreshToken, account);
+  return refreshed?.accessToken ?? null;
 }
 
 export async function tokenFromAny(config: OAuthConfig): Promise<{ accessToken: string; account: number } | null> {
@@ -61,6 +51,7 @@ export async function tokenFromAny(config: OAuthConfig): Promise<{ accessToken: 
       const refreshed = await refresh(config, c.refreshToken, account);
       return { accessToken: refreshed.accessToken, account };
     } catch (err) {
+      handleRefreshFailure(config, account, err);
       logger.debug(`${config.providerName}:${account} refresh failed in tokenFromAny`, { error: String(err) });
     }
   }
@@ -160,6 +151,29 @@ async function refresh(config: OAuthConfig, refreshToken: string, account = 0): 
   return credentials;
 }
 
+async function refreshWithRetry(
+  config: OAuthConfig,
+  refreshToken: string,
+  account: number,
+): Promise<Credentials | null> {
+  try {
+    return await refresh(config, refreshToken, account);
+  } catch (err) {
+    if (handleRefreshFailure(config, account, err)) return null;
+
+    logger.warn(`Token refresh failed for ${config.providerName}:${account}, retrying...`, { error: String(err) });
+
+    try {
+      await Bun.sleep(1000);
+      return await refresh(config, refreshToken, account);
+    } catch (retryErr) {
+      handleRefreshFailure(config, account, retryErr);
+      logger.error(`Token refresh retry failed for ${config.providerName}:${account}`, { error: String(retryErr) });
+      return null;
+    }
+  }
+}
+
 async function exchange(config: OAuthConfig, params: Record<string, string>): Promise<Record<string, unknown>> {
   const all: Record<string, string> = { client_id: config.clientId, ...params };
   if (config.clientSecret) all.client_secret = config.clientSecret;
@@ -173,10 +187,81 @@ async function exchange(config: OAuthConfig, params: Record<string, string>): Pr
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${config.providerName} token exchange failed (${res.status}): ${text}`);
+    const oauthError = parseOAuthError(text);
+    throw new TokenExchangeError(config.providerName, res.status, text, oauthError.code, oauthError.description);
   }
 
   return (await res.json()) as Record<string, unknown>;
+}
+
+class TokenExchangeError extends Error {
+  readonly status: number;
+  readonly responseBody: string;
+  readonly errorCode: string | null;
+  readonly errorDescription: string | null;
+
+  constructor(
+    providerName: string,
+    status: number,
+    responseBody: string,
+    errorCode: string | null,
+    errorDescription: string | null,
+  ) {
+    super(`${providerName} token exchange failed (${status}): ${responseBody}`);
+    this.name = "TokenExchangeError";
+    this.status = status;
+    this.responseBody = responseBody;
+    this.errorCode = errorCode;
+    this.errorDescription = errorDescription;
+  }
+}
+
+function parseOAuthError(responseBody: string): { code: string | null; description: string | null } {
+  try {
+    const parsed = JSON.parse(responseBody) as { error?: unknown; error_description?: unknown };
+    const code = typeof parsed.error === "string" ? parsed.error : null;
+    const description = typeof parsed.error_description === "string" ? parsed.error_description : null;
+    return { code, description };
+  } catch {
+    return { code: null, description: null };
+  }
+}
+
+/** Handles terminal refresh failures and returns true when retry should stop. */
+function handleRefreshFailure(config: OAuthConfig, account: number, err: unknown): boolean {
+  if (!isInvalidRefreshTokenError(err)) return false;
+  if (!store.get(config.providerName, account)) return false;
+
+  store.remove(config.providerName, account);
+  logger.warn(`Removed invalid refresh token for ${config.providerName}:${account}; re-login required.`, {
+    error: String(err),
+  });
+  return true;
+}
+
+function isInvalidRefreshTokenError(err: unknown): boolean {
+  if (!(err instanceof TokenExchangeError)) return false;
+  if (err.status !== 400 && err.status !== 401) return false;
+
+  if (err.errorCode === "invalid_grant") return true;
+
+  const description = err.errorDescription?.toLowerCase() ?? "";
+  const hasRefreshTokenContext = description.includes("refresh token");
+  const indicatesInvalidState =
+    description.includes("invalid") ||
+    description.includes("not found") ||
+    description.includes("expired") ||
+    description.includes("revoked");
+
+  if (hasRefreshTokenContext && indicatesInvalidState) return true;
+
+  const body = err.responseBody.toLowerCase();
+  return (
+    body.includes("invalid_grant") ||
+    body.includes("invalid refresh token") ||
+    body.includes("refresh token not found") ||
+    body.includes("refresh token is invalid")
+  );
 }
 
 function parseTokenFields(raw: Record<string, unknown>, config: OAuthConfig): Credentials {
