@@ -136,10 +136,12 @@ function transformForCodex(
   }
 
   // Reasoning config — merge with caller-provided values, defaults match reference behavior
+  // Chat Completions uses top-level "reasoning_effort"; Responses API uses "reasoning.effort"
   const model = (parsed.model as string) ?? "";
   const existingReasoning = (parsed.reasoning as Record<string, unknown>) ?? {};
+  const topLevelEffort = parsed.reasoning_effort as string | undefined;
   parsed.reasoning = {
-    effort: clampReasoningEffort(model, (existingReasoning.effort as string) ?? "high"),
+    effort: clampReasoningEffort(model, topLevelEffort ?? (existingReasoning.effort as string) ?? "medium"),
     summary: existingReasoning.summary ?? "auto",
   };
 
@@ -157,6 +159,7 @@ function transformForCodex(
   }
 
   // Remove fields the Codex backend doesn't accept
+  delete parsed.reasoning_effort; // Chat Completions field; already mapped to reasoning.effort above
   delete parsed.max_tokens;
   delete parsed.max_completion_tokens;
   delete parsed.max_output_tokens;

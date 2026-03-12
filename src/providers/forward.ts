@@ -51,7 +51,29 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
       const text = await response.text();
       const ctx = opts.email ? ` account=${opts.email}` : "";
       logger.error(`${opts.providerName} API error (${response.status})${ctx}`, { error: text.slice(0, 200) });
-      return new Response(text, { status: response.status, headers: { "Content-Type": contentType } });
+
+      // Normalize non-standard error responses (e.g. {"detail":"..."}) to OpenAI format
+      // so Amp CLI can deserialize them (it expects {"error": {...}})
+      let errorBody = text;
+      try {
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        if (!parsed.error) {
+          const message = (parsed.detail as string) ?? (parsed.message as string) ?? text;
+          errorBody = JSON.stringify({
+            error: { message, type: "api_error", code: String(response.status) },
+          });
+        }
+      } catch {
+        // Not JSON — wrap raw text
+        errorBody = JSON.stringify({
+          error: { message: text, type: "api_error", code: String(response.status) },
+        });
+      }
+
+      return new Response(errorBody, {
+        status: response.status,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const isSSE = contentType.includes("text/event-stream") || opts.streaming;
