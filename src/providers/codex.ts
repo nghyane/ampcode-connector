@@ -30,7 +30,7 @@ export const provider: Provider = {
 
     const accountId = getAccountId(accessToken, account);
     const codexPath = codexPathMap[sub] ?? sub;
-    const promptCacheKey = originalHeaders.get("x-amp-thread-id") ?? undefined;
+    const promptCacheKey = originalHeaders.get("x-amp-thread-id") ?? originalHeaders.get("x-session-id") ?? undefined;
     const { body: codexBody, needsResponseTransform } = transformForCodex(body.forwardBody, promptCacheKey);
     const ampModel = body.ampModel ?? "gpt-5.2";
 

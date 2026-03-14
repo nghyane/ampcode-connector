@@ -1,17 +1,31 @@
-/** Retry logic: cache-preserving wait + reroute after 429. */
+/** Retry logic: cache-preserving wait + reroute after retryable failures (429/403). */
 
 import type { ProxyConfig } from "../config/config.ts";
 import type { ParsedBody } from "../server/body.ts";
 import { logger } from "../utils/logger.ts";
-import { cooldown, parseRetryAfter } from "./cooldown.ts";
-import { type RouteResult, recordSuccess, rerouteAfter429 } from "./router.ts";
+import { cooldown, parseRetryAfter, type QuotaPool } from "./cooldown.ts";
+import { type RouteResult, recordSuccess, reroute } from "./router.ts";
 
-/** Max 429-reroute attempts before falling back to upstream. */
+/** Max reroute attempts before falling back to upstream. */
 const MAX_REROUTE_ATTEMPTS = 4;
 /** Max seconds to wait-and-retry on the same account (preserves prompt cache). */
 const CACHE_PRESERVE_WAIT_MAX_S = 10;
 
-/** Wait briefly and retry on the same account to preserve prompt cache. */
+/** Status codes that trigger rerouting to a different account/pool. */
+const REROUTABLE_STATUSES = new Set([429, 403]);
+
+interface RerouteContext {
+  providerName: string;
+  ampModel: string | null;
+  config: ProxyConfig;
+  sub: string;
+  body: ParsedBody;
+  headers: Headers;
+  rewrite: ((data: string) => string) | undefined;
+  threadId?: string;
+}
+
+/** Wait briefly and retry on the same account to preserve prompt cache (429 only). */
 export async function tryWithCachePreserve(
   route: RouteResult,
   sub: string,
@@ -38,35 +52,26 @@ export async function tryWithCachePreserve(
   return null;
 }
 
-/** Reroute to different accounts/pools after 429 (cache loss accepted). */
+/** Reroute to different accounts/pools after a retryable failure (429/403). */
 export async function tryReroute(
-  providerName: string,
-  ampModel: string | null,
-  config: ProxyConfig,
+  ctx: RerouteContext,
   initialRoute: RouteResult,
-  sub: string,
-  body: ParsedBody,
-  headers: Headers,
-  rewrite: ((data: string) => string) | undefined,
-  initialResponse: Response,
-  threadId?: string,
+  status: number,
 ): Promise<Response | null> {
-  const retryAfter = parseRetryAfter(initialResponse.headers.get("retry-after"));
-  logger.warn(`429 from ${initialRoute.decision} account=${initialRoute.account}`, { retryAfter });
+  recordFailure(initialRoute.pool!, initialRoute.account, status);
 
   let currentPool = initialRoute.pool!;
   let currentAccount = initialRoute.account;
 
   for (let attempt = 0; attempt < MAX_REROUTE_ATTEMPTS; attempt++) {
-    const next = rerouteAfter429(providerName, ampModel, config, currentPool, currentAccount, retryAfter, threadId);
-    if (!next) break;
+    const next = reroute(ctx.providerName, ctx.ampModel, ctx.config, currentPool, currentAccount, ctx.threadId);
+    if (!next?.handler) break;
 
-    logger.info(`REROUTE -> ${next.decision} account=${next.account}`);
-    const response = await next.handler!.forward(sub, body, headers, rewrite, next.account);
+    logger.info(`REROUTE (${status}) -> ${next.decision} account=${next.account}`);
+    const response = await next.handler.forward(ctx.sub, ctx.body, ctx.headers, ctx.rewrite, next.account);
 
-    if (response.status === 429 && next.pool) {
-      const nextRetryAfter = parseRetryAfter(response.headers.get("retry-after"));
-      cooldown.record429(next.pool, next.account, nextRetryAfter);
+    if (REROUTABLE_STATUSES.has(response.status) && next.pool) {
+      recordFailure(next.pool, next.account, response.status);
       currentPool = next.pool;
       currentAccount = next.account;
       continue;
@@ -80,4 +85,13 @@ export async function tryReroute(
   }
 
   return null;
+}
+
+/** Record the appropriate cooldown based on status code. */
+function recordFailure(pool: QuotaPool, account: number, status: number): void {
+  if (status === 403) {
+    cooldown.record403(pool, account);
+  } else {
+    cooldown.record429(pool, account);
+  }
 }

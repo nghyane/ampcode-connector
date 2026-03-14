@@ -123,19 +123,16 @@ export function routeRequest(
   return result(picked.provider, ampProvider, modelStr, picked.account, picked.pool);
 }
 
-/** Record a 429 response and attempt re-route. Returns a new RouteResult or null. */
-export function rerouteAfter429(
+/** Record a failure on the current account and pick the next candidate.
+ *  Caller is responsible for recording the failure (429/403) on cooldown before calling. */
+export function reroute(
   ampProvider: string,
   model: string | null,
   config: ProxyConfig,
   failedPool: QuotaPool,
   failedAccount: number,
-  retryAfterSeconds: number | undefined,
   threadId?: string,
 ): RouteResult | null {
-  cooldown.record429(failedPool, failedAccount, retryAfterSeconds);
-
-  // If exhausted, break thread affinity
   if (threadId && cooldown.isExhausted(failedPool, failedAccount)) {
     affinity.clear(threadId, ampProvider);
   }

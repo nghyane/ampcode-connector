@@ -5,7 +5,6 @@ import type { ProxyConfig } from "../config/config.ts";
 import * as rewriter from "../proxy/rewriter.ts";
 import * as upstream from "../proxy/upstream.ts";
 import { affinity } from "../routing/affinity.ts";
-import { cooldown } from "../routing/cooldown.ts";
 import { tryReroute, tryWithCachePreserve } from "../routing/retry.ts";
 import { recordSuccess, routeRequest } from "../routing/router.ts";
 import { handleInternal, isLocalMethod } from "../tools/internal.ts";
@@ -85,7 +84,7 @@ async function handleProvider(
 ): Promise<Response> {
   const startTime = Date.now();
   const sub = path.subpath(pathname);
-  const threadId = req.headers.get("x-amp-thread-id") ?? undefined;
+  const threadId = req.headers.get("x-amp-thread-id") ?? req.headers.get("x-session-id") ?? undefined;
 
   const rawBody = req.method === "POST" ? await req.text() : "";
   const body = parseBody(rawBody, sub);
@@ -102,29 +101,19 @@ async function handleProvider(
     const rewrite = ampModel ? rewriter.rewrite(ampModel) : undefined;
     const handlerResponse = await route.handler.forward(sub, body, req.headers, rewrite, route.account);
 
-    if (handlerResponse.status === 429 && route.pool) {
-      const cached = await tryWithCachePreserve(route, sub, body, req.headers, rewrite, handlerResponse);
+    if ((handlerResponse.status === 429 || handlerResponse.status === 403) && route.pool) {
+      const ctx = { providerName, ampModel, config, sub, body, headers: req.headers, rewrite, threadId };
+      // 429: try short wait to preserve prompt cache first
+      const cached =
+        handlerResponse.status === 429
+          ? await tryWithCachePreserve(route, sub, body, req.headers, rewrite, handlerResponse)
+          : null;
       if (cached) {
         response = cached;
       } else {
-        const rerouted = await tryReroute(
-          providerName,
-          ampModel,
-          config,
-          route,
-          sub,
-          body,
-          req.headers,
-          rewrite,
-          handlerResponse,
-          threadId,
-        );
+        const rerouted = await tryReroute(ctx, route, handlerResponse.status);
         response = rerouted ?? (await fallbackUpstream(req, body, config));
       }
-    } else if (handlerResponse.status === 403 && route.pool) {
-      cooldown.record403(route.pool, route.account);
-      if (threadId) affinity.clear(threadId, providerName);
-      response = await fallbackUpstream(req, body, config);
     } else if (handlerResponse.status === 401) {
       logger.debug("Local provider denied, falling back to upstream");
       response = await fallbackUpstream(req, body, config);

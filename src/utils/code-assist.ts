@@ -46,6 +46,44 @@ export function withUnwrap(rewrite?: (d: string) => string): (d: string) => stri
   return rewrite ? (d: string) => rewrite(unwrap(d)) : unwrap;
 }
 
+/** Ensure every function_response part has a non-empty name.
+ *  Gemini API rejects requests where function_response.name is empty.
+ *  Recovers correct names by matching function_response.id → function_call.id.
+ *  Handles both camelCase (functionCall) and snake_case (function_call) keys. */
+function fixFunctionResponseNames(body: Record<string, unknown>): void {
+  const contents = body.contents;
+  if (!Array.isArray(contents)) return;
+
+  type Part = Record<string, unknown>;
+  const getFc = (p: Part) => (p.functionCall ?? p.function_call) as Record<string, unknown> | undefined;
+  const getFr = (p: Part) => (p.functionResponse ?? p.function_response) as Record<string, unknown> | undefined;
+
+  const nameById = new Map<string, string>();
+  for (const content of contents) {
+    const parts = (content as Part)?.parts;
+    if (!Array.isArray(parts)) continue;
+    for (const part of parts) {
+      const fc = getFc(part as Part);
+      if (fc && typeof fc.name === "string" && typeof fc.id === "string") {
+        nameById.set(fc.id, fc.name);
+      }
+    }
+  }
+
+  for (const content of contents) {
+    const parts = (content as Part)?.parts;
+    if (!Array.isArray(parts)) continue;
+    for (const part of parts) {
+      const fr = getFr(part as Part);
+      if (!fr || (typeof fr.name === "string" && fr.name)) continue;
+      const resolved = typeof fr.id === "string" ? nameById.get(fr.id) : undefined;
+      if (resolved) {
+        fr.name = resolved;
+      }
+    }
+  }
+}
+
 /** Wrap body in CCA envelope if not already wrapped. */
 export function maybeWrap(
   parsed: Record<string, unknown> | null,
@@ -56,5 +94,6 @@ export function maybeWrap(
 ): string {
   if (!parsed) return raw;
   if (parsed.project) return raw;
+  fixFunctionResponseNames(parsed);
   return wrapRequest({ projectId, model, body: parsed, ...opts });
 }
