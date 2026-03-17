@@ -38,13 +38,13 @@ export const OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 export const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
-export const CLAUDE_CODE_VERSION = "2.1.39";
+export const CLAUDE_CODE_VERSION = "2.1.77";
 
 export const stainlessHeaders: Readonly<Record<string, string>> = {
   "X-Stainless-Helper-Method": "stream",
   "X-Stainless-Retry-Count": "0",
-  "X-Stainless-Runtime-Version": "v24.13.1",
-  "X-Stainless-Package-Version": "0.73.0",
+  "X-Stainless-Runtime-Version": "v24.3.0",
+  "X-Stainless-Package-Version": "0.74.0",
   "X-Stainless-Runtime": "node",
   "X-Stainless-Lang": "js",
   "X-Stainless-Arch": process.arch,
@@ -56,10 +56,14 @@ export const claudeCodeBetas = [
   "claude-code-20250219",
   "oauth-2025-04-20",
   "interleaved-thinking-2025-05-14",
+  "redact-thinking-2026-02-12",
+  "context-management-2025-06-27",
   "prompt-caching-scope-2026-01-05",
+  "advanced-tool-use-2025-11-20",
+  "effort-2025-11-24",
 ] as const;
 
-export const filteredBetaFeatures = ["context-1m-2025-08-07"] as const;
+export const filteredBetaFeatures = ["fast-mode-2026-02-01"] as const;
 
 export const modelFieldPaths = [
   "model",

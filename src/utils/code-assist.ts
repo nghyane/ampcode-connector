@@ -48,19 +48,45 @@ export function withUnwrap(rewrite?: (d: string) => string): (d: string) => stri
 
 /** Ensure every function_response part has a non-empty name.
  *  Gemini API rejects requests where function_response.name is empty.
- *  Recovers correct names by matching function_response.id → function_call.id.
+ *  Uses two strategies:
+ *  1. Positional: a model turn with N functionCall parts is followed by a user turn
+ *     with N functionResponse parts in the same order — match by index.
+ *  2. ID-based fallback: match function_response.id → function_call.id.
  *  Handles both camelCase (functionCall) and snake_case (function_call) keys. */
 function fixFunctionResponseNames(body: Record<string, unknown>): void {
   const contents = body.contents;
   if (!Array.isArray(contents)) return;
 
   type Part = Record<string, unknown>;
+  type Content = { role?: string; parts?: Part[] };
   const getFc = (p: Part) => (p.functionCall ?? p.function_call) as Record<string, unknown> | undefined;
   const getFr = (p: Part) => (p.functionResponse ?? p.function_response) as Record<string, unknown> | undefined;
 
+  // Pass 1: positional matching — pair consecutive model/user turns
+  for (let i = 0; i < contents.length - 1; i++) {
+    const modelTurn = contents[i] as Content;
+    const userTurn = contents[i + 1] as Content;
+    if (modelTurn.role !== "model" || userTurn.role !== "user") continue;
+    if (!Array.isArray(modelTurn.parts) || !Array.isArray(userTurn.parts)) continue;
+
+    const fcParts = modelTurn.parts.filter((p) => getFc(p as Part));
+    const frParts = userTurn.parts.filter((p) => getFr(p as Part));
+    if (fcParts.length === 0 || fcParts.length !== frParts.length) continue;
+
+    for (let j = 0; j < frParts.length; j++) {
+      const fr = getFr(frParts[j] as Part)!;
+      if (typeof fr.name === "string" && fr.name) continue;
+      const fc = getFc(fcParts[j] as Part)!;
+      if (typeof fc.name === "string") {
+        fr.name = fc.name;
+      }
+    }
+  }
+
+  // Pass 2: ID-based fallback for any remaining empty names
   const nameById = new Map<string, string>();
   for (const content of contents) {
-    const parts = (content as Part)?.parts;
+    const parts = (content as Content)?.parts;
     if (!Array.isArray(parts)) continue;
     for (const part of parts) {
       const fc = getFc(part as Part);
@@ -70,8 +96,10 @@ function fixFunctionResponseNames(body: Record<string, unknown>): void {
     }
   }
 
+  if (nameById.size === 0) return;
+
   for (const content of contents) {
-    const parts = (content as Part)?.parts;
+    const parts = (content as Content)?.parts;
     if (!Array.isArray(parts)) continue;
     for (const part of parts) {
       const fr = getFr(part as Part);

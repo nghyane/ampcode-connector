@@ -49,6 +49,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.74.0",
     "exa-js": "^2.4.0",
     "turndown": "^7.2.2",
     "turndown-plugin-gfm": "^1.0.2"

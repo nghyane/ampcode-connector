@@ -9,7 +9,7 @@ export const anthropic: OAuthConfig = {
   tokenUrl: ANTHROPIC_TOKEN_URL,
   callbackPort: 54545,
   callbackPath: "/callback",
-  scopes: "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers",
+  scopes: "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
   bodyFormat: "json",
   expiryBuffer: true,
   sendStateInExchange: true,
