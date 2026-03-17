@@ -56,11 +56,8 @@ export const claudeCodeBetas = [
   "claude-code-20250219",
   "oauth-2025-04-20",
   "interleaved-thinking-2025-05-14",
-  "redact-thinking-2026-02-12",
   "context-management-2025-06-27",
   "prompt-caching-scope-2026-01-05",
-  "advanced-tool-use-2025-11-20",
-  "effort-2025-11-24",
 ] as const;
 
 export const filteredBetaFeatures = ["fast-mode-2026-02-01"] as const;
