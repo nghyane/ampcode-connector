@@ -1,6 +1,6 @@
 /** Structured logging with route decision tracking. */
 
-export type RouteDecision = "LOCAL_CLAUDE" | "LOCAL_CODEX" | "LOCAL_GEMINI" | "LOCAL_ANTIGRAVITY" | "AMP_UPSTREAM";
+export type RouteDecision = "LOCAL_CLAUDE" | "LOCAL_CODEX" | "LOCAL_GOOGLE" | "AMP_UPSTREAM";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -41,8 +41,7 @@ const LEVEL_COLORS: Record<LogLevel, string> = {
 const ROUTE_COLORS: Record<RouteDecision, string> = {
   LOCAL_CLAUDE: GREEN,
   LOCAL_CODEX: GREEN,
-  LOCAL_GEMINI: GREEN,
-  LOCAL_ANTIGRAVITY: GREEN,
+  LOCAL_GOOGLE: GREEN,
   AMP_UPSTREAM: YELLOW,
 };
 

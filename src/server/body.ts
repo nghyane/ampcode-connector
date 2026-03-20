@@ -3,7 +3,7 @@
  *  Slow path: full JSON.parse only when .parsed or .forwardBody is accessed
  *  (e.g. Google CCA wrapping, model rewrite). */
 
-import { resolveModel, rewriteBodyModel } from "../routing/models.ts";
+import { resolveModel, rewriteBodyModel } from "../utils/models.ts";
 import * as path from "../utils/path.ts";
 
 export interface ParsedBody {

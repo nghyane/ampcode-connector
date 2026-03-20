@@ -21,13 +21,13 @@ export interface ProviderStatus {
 const PROVIDERS: { name: ProviderName; label: string; sublabel?: string }[] = [
   { name: "anthropic", label: "Claude Code" },
   { name: "codex", label: "OpenAI Codex" },
-  { name: "google", label: "Google", sublabel: "Gemini CLI + Antigravity" },
+  { name: "google", label: "Google" },
 ];
 
 const POOL_MAP: Record<ProviderName, QuotaPool[]> = {
   anthropic: ["anthropic"],
   codex: ["codex"],
-  google: ["gemini", "antigravity"],
+  google: ["google"],
 };
 
 function connectionOf(name: ProviderName, account: number, creds: Credentials): ConnectionStatus {

@@ -3,7 +3,7 @@
 
 import { logger } from "../utils/logger.ts";
 
-export type QuotaPool = "anthropic" | "codex" | "gemini" | "antigravity";
+export type QuotaPool = "anthropic" | "codex" | "google";
 
 interface CooldownEntry {
   until: number;
@@ -72,6 +72,22 @@ class CooldownTracker {
     const k = this.key(pool, account);
     this.entries.set(k, { until: Date.now() + FORBIDDEN_COOLDOWN_MS, exhausted: true, consecutive429: 0 });
     logger.warn(`Account disabled (403): ${k}`, { cooldownHours: FORBIDDEN_COOLDOWN_MS / 3600_000 });
+  }
+
+  /** Return shortest remaining wait (ms) among non-exhausted entries for the given candidates.
+   *  Returns undefined if no candidates are cooling down or all are exhausted. */
+  shortestBurstWait(candidates: { pool: QuotaPool; account: number }[]): number | undefined {
+    let shortest: number | undefined;
+    const now = Date.now();
+    for (const c of candidates) {
+      const entry = this.entries.get(this.key(c.pool, c.account));
+      if (!entry || entry.exhausted) continue;
+      const remaining = entry.until - now;
+      if (remaining > 0 && (shortest === undefined || remaining < shortest)) {
+        shortest = remaining;
+      }
+    }
+    return shortest;
   }
 
   recordSuccess(pool: QuotaPool, account: number): void {

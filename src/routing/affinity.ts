@@ -8,7 +8,7 @@ import type { QuotaPool } from "./cooldown.ts";
 interface AffinityEntry {
   pool: QuotaPool;
   account: number;
-  assignedAt: number;
+  lastUsedAt: number;
 }
 
 /** Affinity expires after 2 hours of inactivity. */
@@ -51,7 +51,7 @@ class AffinityStore {
     const k = this.key(threadId, ampProvider);
     const entry = this.map.get(k);
     if (!entry) return undefined;
-    if (Date.now() - entry.assignedAt > TTL_MS) {
+    if (Date.now() - entry.lastUsedAt > TTL_MS) {
       this.removeExpired(k, entry);
       return undefined;
     }
@@ -61,7 +61,7 @@ class AffinityStore {
   /** Read affinity and touch (extend TTL). */
   get(threadId: string, ampProvider: string): AffinityEntry | undefined {
     const entry = this.peek(threadId, ampProvider);
-    if (entry) entry.assignedAt = Date.now();
+    if (entry) entry.lastUsedAt = Date.now();
     return entry;
   }
 
@@ -76,7 +76,7 @@ class AffinityStore {
     } else {
       this.incCount(pool, account);
     }
-    this.map.set(k, { pool, account, assignedAt: Date.now() });
+    this.map.set(k, { pool, account, lastUsedAt: Date.now() });
   }
 
   /** Break affinity when account is exhausted — allow re-routing. */
@@ -100,7 +100,7 @@ class AffinityStore {
     this.cleanupTimer = setInterval(() => {
       const now = Date.now();
       for (const [k, entry] of this.map) {
-        if (now - entry.assignedAt > TTL_MS) {
+        if (now - entry.lastUsedAt > TTL_MS) {
           this.removeExpired(k, entry);
         }
       }

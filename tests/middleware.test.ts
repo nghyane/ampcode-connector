@@ -26,8 +26,10 @@ describe("path.passthrough", () => {
   });
 
   test("identifies exact match routes", () => {
-    expect(path.browser("/threads.rss")).toBe(true);
-    expect(path.browser("/news.rss")).toBe(true);
+    expect(path.passthrough("/threads.rss")).toBe(true);
+    expect(path.passthrough("/news.rss")).toBe(true);
+    expect(path.browser("/threads.rss")).toBe(false);
+    expect(path.browser("/news.rss")).toBe(false);
   });
 
   test("rejects provider routes", () => {

@@ -5,7 +5,7 @@ import { browserPrefixes, passthroughExact, passthroughPrefixes } from "../const
 const PROVIDER_RE = /^\/api\/provider\/([^/]+)/;
 const SUBPATH_RE = /^\/api\/provider\/[^/]+(\/.*)/;
 const MODEL_RE = /models\/([^/:]+)/;
-const GEMINI_RE = /models\/([^/:]+):(\w+)/;
+const GOOGLE_MODEL_RE = /models\/([^/:]+):(\w+)/;
 
 export function passthrough(pathname: string): boolean {
   if ((passthroughExact as readonly string[]).includes(pathname)) return true;
@@ -13,8 +13,7 @@ export function passthrough(pathname: string): boolean {
 }
 
 export function browser(pathname: string): boolean {
-  if ((passthroughExact as readonly string[]).includes(pathname)) return true;
-  return browserPrefixes.some((prefix) => pathname.startsWith(prefix));
+  return browserPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 export function provider(pathname: string): string | null {
@@ -32,8 +31,8 @@ export function modelFromUrl(url: string): string | null {
   return match?.[1] ?? null;
 }
 
-export function gemini(url: string): { model: string; action: string } | null {
-  const match = url.match(GEMINI_RE);
+export function googleModel(url: string): { model: string; action: string } | null {
+  const match = url.match(GOOGLE_MODEL_RE);
   if (!match) return null;
   return { model: match[1]!, action: match[2]! };
 }

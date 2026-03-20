@@ -10,6 +10,7 @@ import { recordSuccess, routeRequest } from "../routing/router.ts";
 import { handleInternal, isLocalMethod } from "../tools/internal.ts";
 import { logger } from "../utils/logger.ts";
 import * as path from "../utils/path.ts";
+import { apiError } from "../utils/responses.ts";
 import { stats } from "../utils/stats.ts";
 import { type ParsedBody, parseBody } from "./body.ts";
 
@@ -29,7 +30,7 @@ export function startServer(config: ProxyConfig): ReturnType<typeof Bun.serve> {
         return response;
       } catch (err) {
         logger.error("Unhandled server error", { error: String(err) });
-        return Response.json({ error: "Internal proxy error" }, { status });
+        return apiError(status, "Internal proxy error");
       } finally {
         logger.info(`${req.method} ${url.pathname}${url.search} ${status}`, { duration: Date.now() - startTime });
       }

@@ -5,17 +5,16 @@
  * - Thread affinity: same thread sticks to same account
  * - Cooldown: skip 429'd accounts, detect quota exhaustion
  * - Least-connections: prefer accounts with fewer active threads
- * - Google cascade: gemini accounts → antigravity accounts (separate quotas)
+ * - Google: single pool with internal strategy fallback (gemini/antigravity)
  */
 
 import type { ProviderName } from "../auth/store.ts";
 import * as store from "../auth/store.ts";
 import type { ProxyConfig } from "../config/config.ts";
 import { provider as anthropic } from "../providers/anthropic.ts";
-import { provider as antigravity } from "../providers/antigravity.ts";
 import type { Provider } from "../providers/base.ts";
 import { provider as codex } from "../providers/codex.ts";
-import { provider as gemini } from "../providers/gemini.ts";
+import { provider as google } from "../providers/google.ts";
 import { logger, type RouteDecision } from "../utils/logger.ts";
 import { affinity } from "./affinity.ts";
 import { cooldown, type QuotaPool } from "./cooldown.ts";
@@ -46,10 +45,7 @@ const PROVIDER_REGISTRY = new Map<string, { configKey: keyof ProxyConfig["provid
     "google",
     {
       configKey: "google",
-      entries: [
-        { provider: gemini, pool: "gemini", credentialName: "google" },
-        { provider: antigravity, pool: "antigravity", credentialName: "google" },
-      ],
+      entries: [{ provider: google, pool: "google", credentialName: "google" }],
     },
   ],
 ]);
@@ -84,6 +80,13 @@ export function routeRequest(
   threadId?: string,
 ): RouteResult {
   const modelStr = model ?? "unknown";
+
+  // Early exit if provider is disabled in config
+  const reg = PROVIDER_REGISTRY.get(ampProvider);
+  if (!reg || !config.providers[reg.configKey]) {
+    logger.route("AMP_UPSTREAM", ampProvider, modelStr);
+    return result(null, ampProvider, modelStr, 0, null);
+  }
 
   // Check thread affinity (keyed by threadId + ampProvider)
   if (threadId) {
@@ -153,7 +156,7 @@ export function recordSuccess(pool: QuotaPool, account: number): void {
   cooldown.recordSuccess(pool, account);
 }
 
-function buildCandidates(ampProvider: string, config: ProxyConfig): Candidate[] {
+export function buildCandidates(ampProvider: string, config: ProxyConfig): Candidate[] {
   const reg = PROVIDER_REGISTRY.get(ampProvider);
   if (!reg || !config.providers[reg.configKey]) return [];
 
@@ -183,18 +186,21 @@ function pickCandidate(candidates: Candidate[]): Candidate | null {
   if (available.length === 0) return null;
 
   // Pick the one with least active threads (least-connections)
-  let best = available[0]!;
-  let bestLoad = affinity.activeCount(best.pool, best.account);
+  // When multiple candidates have the same load, pick randomly for even distribution
+  let bestLoad = affinity.activeCount(available[0]!.pool, available[0]!.account);
+  let ties: Candidate[] = [available[0]!];
 
   for (let i = 1; i < available.length; i++) {
     const load = affinity.activeCount(available[i]!.pool, available[i]!.account);
     if (load < bestLoad) {
-      best = available[i]!;
       bestLoad = load;
+      ties = [available[i]!];
+    } else if (load === bestLoad) {
+      ties.push(available[i]!);
     }
   }
 
-  return best;
+  return ties[Math.floor(Math.random() * ties.length)]!;
 }
 
 function providerForPool(pool: QuotaPool): Provider | null {

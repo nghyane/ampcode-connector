@@ -1,6 +1,7 @@
 /** HTTP forwarding with transport-level retry, SSE proxying, and response rewriting. */
 
 import { logger } from "../utils/logger.ts";
+import { apiError } from "../utils/responses.ts";
 import * as sse from "../utils/streaming.ts";
 
 export interface ForwardOptions {
@@ -16,6 +17,24 @@ export interface ForwardOptions {
 const RETRYABLE_STATUS = new Set([408, 500, 502, 503, 504]);
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 500;
+
+const PASSTHROUGH_HEADERS = [
+  "content-type",
+  "retry-after",
+  "x-request-id",
+  "x-ratelimit-limit-requests",
+  "x-ratelimit-remaining-requests",
+  "x-ratelimit-reset-requests",
+];
+
+function copyHeaders(source: Headers): Headers {
+  const dest = new Headers();
+  for (const name of PASSTHROUGH_HEADERS) {
+    const value = source.get(name);
+    if (value !== null) dest.set(name, value);
+  }
+  return dest;
+}
 
 export async function forward(opts: ForwardOptions): Promise<Response> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -70,21 +89,25 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
         });
       }
 
+      const headers = copyHeaders(response.headers);
+      headers.set("Content-Type", "application/json");
       return new Response(errorBody, {
         status: response.status,
-        headers: { "Content-Type": "application/json" },
+        headers,
       });
     }
 
     const isSSE = contentType.includes("text/event-stream") || opts.streaming;
     if (isSSE) return sse.proxy(response, opts.rewrite);
 
+    const headers = copyHeaders(response.headers);
+
     if (opts.rewrite) {
       const text = await response.text();
-      return new Response(opts.rewrite(text), { status: response.status, headers: { "Content-Type": contentType } });
+      return new Response(opts.rewrite(text), { status: response.status, headers });
     }
 
-    return new Response(response.body, { status: response.status, headers: { "Content-Type": contentType } });
+    return new Response(response.body, { status: response.status, headers });
   }
 
   // Unreachable, but TypeScript needs it
@@ -92,5 +115,5 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
 }
 
 export function denied(providerName: string): Response {
-  return Response.json({ error: `No ${providerName} OAuth token available. Run login first.` }, { status: 401 });
+  return apiError(401, `No ${providerName} OAuth token available. Run login first.`);
 }

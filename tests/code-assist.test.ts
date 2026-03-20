@@ -1,17 +1,14 @@
-/** Integration test: @google/genai SDK → proxy → Antigravity CCA → response.
+/** Integration test: @google/genai SDK → proxy → Google CCA → response.
  *
  *  Proves the proxy correctly translates between Amp CLI's Vertex AI format
- *  and Cloud Code Assist's /v1internal envelope — using the real SDK and real endpoint.
- *
- *  Forces Antigravity by swapping router order at runtime. */
+ *  and Cloud Code Assist's /v1internal envelope — using the real SDK and real endpoint. */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { GoogleGenAI } from "@google/genai";
 import { google } from "../src/auth/configs.ts";
 import * as oauth from "../src/auth/oauth.ts";
 import * as store from "../src/auth/store.ts";
-import { provider as antigravity } from "../src/providers/antigravity.ts";
-import type { provider as gemini } from "../src/providers/gemini.ts";
+import { provider as googleProvider } from "../src/providers/google.ts";
 import * as rewriter from "../src/proxy/rewriter.ts";
 import type { ParsedBody } from "../src/server/body.ts";
 import * as path from "../src/utils/path.ts";
@@ -25,8 +22,8 @@ beforeAll(async () => {
   if (!freshToken) throw new Error("Failed to refresh google token");
 });
 
-/** Minimal proxy that forces a specific provider. */
-function proxyServer(provider: typeof gemini | typeof antigravity) {
+/** Minimal proxy that uses the unified Google provider. */
+function proxyServer() {
   return Bun.serve({
     port: 0,
     async fetch(req) {
@@ -43,17 +40,17 @@ function proxyServer(provider: typeof gemini | typeof antigravity) {
         forwardBody: raw,
       };
       const rewrite = model ? rewriter.rewrite(model) : undefined;
-      return provider.forward(sub, body, req.headers, rewrite);
+      return googleProvider.forward(sub, body, req.headers, rewrite);
     },
   });
 }
 
-describe("antigravity provider via @google/genai SDK", () => {
+describe("google provider via @google/genai SDK", () => {
   let server: ReturnType<typeof Bun.serve>;
   let client: InstanceType<typeof GoogleGenAI>;
 
   beforeAll(() => {
-    server = proxyServer(antigravity);
+    server = proxyServer();
     client = new GoogleGenAI({
       apiKey: "placeholder",
       vertexai: true,

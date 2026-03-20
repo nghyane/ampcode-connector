@@ -150,8 +150,8 @@ describe("denied", () => {
   test("returns 401 with provider name", async () => {
     const res = denied("Anthropic");
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("Anthropic");
-    expect(body.error).toContain("login");
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain("Anthropic");
+    expect(body.error.message).toContain("login");
   });
 });

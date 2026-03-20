@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { resolveModel, rewriteBodyModel } from "../src/routing/models.ts";
 import { parseBody } from "../src/server/body.ts";
+import { resolveModel, rewriteBodyModel } from "../src/utils/models.ts";
 import * as path from "../src/utils/path.ts";
 
 describe("path.modelFromUrl", () => {

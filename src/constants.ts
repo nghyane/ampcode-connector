@@ -6,7 +6,6 @@ export const AUTOPUSH_ENDPOINT = "https://autopush-cloudcode-pa.sandbox.googleap
 export const DEFAULT_ANTIGRAVITY_PROJECT = "rising-fact-p41fc";
 
 export const ANTHROPIC_API_URL = "https://api.anthropic.com";
-export const OPENAI_API_URL = "https://api.openai.com";
 export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 
 /** Codex-specific headers required by the ChatGPT backend. */
@@ -18,11 +17,13 @@ export const codexHeaders = {
   CONVERSATION_ID: "conversation_id",
 } as const;
 
+export const CODEX_CLI_VERSION = "0.101.0";
+
 export const codexHeaderValues = {
   BETA_RESPONSES: "responses=experimental",
   ORIGINATOR: "codex_cli_rs",
-  VERSION: "0.101.0",
-  USER_AGENT: `codex_cli_rs/0.101.0 (${process.platform} ${process.arch})`,
+  VERSION: CODEX_CLI_VERSION,
+  USER_AGENT: `codex_cli_rs/${CODEX_CLI_VERSION} (${process.platform} ${process.arch})`,
 } as const;
 
 /** Map Amp CLI paths → ChatGPT backend paths.
@@ -39,18 +40,6 @@ export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 export const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 export const CLAUDE_CODE_VERSION = "2.1.77";
-
-export const stainlessHeaders: Readonly<Record<string, string>> = {
-  "X-Stainless-Helper-Method": "stream",
-  "X-Stainless-Retry-Count": "0",
-  "X-Stainless-Runtime-Version": "v24.3.0",
-  "X-Stainless-Package-Version": "0.74.0",
-  "X-Stainless-Runtime": "node",
-  "X-Stainless-Lang": "js",
-  "X-Stainless-Arch": process.arch,
-  "X-Stainless-Os": process.platform === "darwin" ? "MacOS" : process.platform === "win32" ? "Windows" : "Linux",
-  "X-Stainless-Timeout": "600",
-};
 
 export const claudeCodeBetas = [
   "claude-code-20250219",
