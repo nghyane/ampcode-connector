@@ -1,7 +1,8 @@
 /** Single source of truth — no magic strings scattered across files. */
 
 export const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com";
-export const ANTIGRAVITY_DAILY_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com";
+export const ANTIGRAVITY_DAILY_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
+export const ANTIGRAVITY_DAILY_SANDBOX_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com";
 export const AUTOPUSH_ENDPOINT = "https://autopush-cloudcode-pa.sandbox.googleapis.com";
 export const DEFAULT_ANTIGRAVITY_PROJECT = "rising-fact-p41fc";
 

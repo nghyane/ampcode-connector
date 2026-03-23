@@ -6,18 +6,23 @@ interface WrapOptions {
   body: Record<string, unknown>;
   userAgent: "antigravity" | "pi-coding-agent";
   requestIdPrefix: "agent" | "pi";
-  requestType?: "agent";
+  requestType?: "agent" | "image_gen";
 }
 
 /** Wrap a raw request body in the Cloud Code Assist envelope. */
 function wrapRequest(opts: WrapOptions): string {
+  const isImageGen = opts.requestType === "image_gen";
+  const requestId = isImageGen
+    ? `image_gen/${Date.now()}/${crypto.randomUUID()}/12`
+    : `${opts.requestIdPrefix}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+
   return JSON.stringify({
     project: opts.projectId,
     model: opts.model,
     request: opts.body,
     ...(opts.requestType && { requestType: opts.requestType }),
     userAgent: opts.userAgent,
-    requestId: `${opts.requestIdPrefix}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+    requestId,
   });
 }
 
@@ -118,7 +123,11 @@ export function maybeWrap(
   raw: string,
   projectId: string,
   model: string,
-  opts: { userAgent: "antigravity" | "pi-coding-agent"; requestIdPrefix: "agent" | "pi"; requestType?: "agent" },
+  opts: {
+    userAgent: "antigravity" | "pi-coding-agent";
+    requestIdPrefix: "agent" | "pi";
+    requestType?: "agent" | "image_gen";
+  },
 ): string {
   if (!parsed) return raw;
   if (parsed.project) return raw;

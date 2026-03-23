@@ -53,7 +53,7 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
         await Bun.sleep(RETRY_DELAY_MS * (attempt + 1));
         continue;
       }
-      throw err;
+      return transportErrorResponse(opts.providerName, err);
     }
 
     // Retry on server errors (429 handled at routing layer)
@@ -116,4 +116,31 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
 
 export function denied(providerName: string): Response {
   return apiError(401, `No ${providerName} OAuth token available. Run login first.`);
+}
+
+function transportErrorResponse(providerName: string, err: unknown): Response {
+  const message = transportErrorMessage(providerName, err);
+  logger.error(`${providerName} transport error after retries exhausted`, { error: String(err) });
+  return apiError(502, message, "connection_error");
+}
+
+function transportErrorMessage(providerName: string, err: unknown): string {
+  const base = `${providerName} connection error after retries were exhausted.`;
+  const details = String(err);
+
+  if (providerName !== "Anthropic") {
+    return `${base} ${details}`;
+  }
+
+  const looksLikeReset =
+    details.includes("ECONNRESET") ||
+    details.includes("socket connection was closed unexpectedly") ||
+    details.includes("tls") ||
+    details.includes("network");
+
+  if (!looksLikeReset) {
+    return `${base} ${details}`;
+  }
+
+  return `${base} ${details} This is often a local network issue rather than an OAuth bug: check Wi-Fi MTU (1492 is a common fix), hotspot stability, and iPhone dual-SIM Cellular Data Switching if you are tethering.`;
 }

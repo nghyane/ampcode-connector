@@ -102,7 +102,10 @@ async function handleProvider(
     const rewrite = ampModel ? rewriter.rewrite(ampModel) : undefined;
     const handlerResponse = await route.handler.forward(sub, body, req.headers, rewrite, route.account);
 
-    if ((handlerResponse.status === 429 || handlerResponse.status === 403) && route.pool) {
+    if (
+      (handlerResponse.status === 429 || handlerResponse.status === 403 || handlerResponse.status === 404) &&
+      route.pool
+    ) {
       const ctx = { providerName, ampModel, config, sub, body, headers: req.headers, rewrite, threadId };
       // 429: try short wait to preserve prompt cache first
       const cached =

@@ -2,45 +2,46 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { denied, type ForwardOptions, forward } from "../src/providers/forward.ts";
 
 /** Minimal HTTP server that simulates provider responses. */
-let mockServer: ReturnType<typeof Bun.serve>;
-let baseUrl: string;
+const baseUrl = "http://mock.local";
+const originalFetch = globalThis.fetch;
 
 // Track requests for assertions
 const requests: { url: string; body: string; headers: Record<string, string> }[] = [];
 
 // Configurable response behavior
-const nextResponses: { status: number; body: string; headers?: Record<string, string> }[] = [];
+const nextResponses: Array<{ status: number; body: string; headers?: Record<string, string> } | { error: Error }> = [];
 
 function enqueue(status: number, body: string, headers?: Record<string, string>): void {
   nextResponses.push({ status, body, headers });
 }
 
-beforeAll(() => {
-  mockServer = Bun.serve({
-    port: 0,
-    fetch(req) {
-      return (async () => {
-        const body = await req.text();
-        const hdrs: Record<string, string> = {};
-        req.headers.forEach((v, k) => {
-          hdrs[k] = v;
-        });
-        requests.push({ url: req.url, body, headers: hdrs });
+function enqueueError(error: Error): void {
+  nextResponses.push({ error });
+}
 
-        const next = nextResponses.shift();
-        if (!next) return new Response("no mock configured", { status: 500 });
-        return new Response(next.body, {
-          status: next.status,
-          headers: { "Content-Type": "application/json", ...next.headers },
-        });
-      })();
-    },
-  });
-  baseUrl = `http://localhost:${mockServer.port}`;
+beforeAll(() => {
+  globalThis.fetch = (async (input, init) => {
+    const req = input instanceof Request ? input : new Request(String(input), init);
+    const body = await req.text();
+    const hdrs: Record<string, string> = {};
+    req.headers.forEach((v, k) => {
+      hdrs[k] = v;
+    });
+    requests.push({ url: req.url, body, headers: hdrs });
+
+    const next = nextResponses.shift();
+    if (!next) return new Response("no mock configured", { status: 500 });
+    if ("error" in next) throw next.error;
+
+    return new Response(next.body, {
+      status: next.status,
+      headers: { "Content-Type": "application/json", ...next.headers },
+    });
+  }) as typeof fetch;
 });
 
 afterAll(() => {
-  mockServer.stop(true);
+  globalThis.fetch = originalFetch;
 });
 
 function opts(overrides?: Partial<ForwardOptions>): ForwardOptions {
@@ -85,9 +86,7 @@ describe("forward", () => {
 
   test("retries on fetch error and eventually succeeds", async () => {
     clearRequests();
-    // Use an unreachable port for first attempt, then real server
-    // Actually, we can just test the success path after retryable status
-    enqueue(502, "bad gateway");
+    enqueueError(new Error("ECONNRESET"));
     enqueue(200, '{"ok":true}');
 
     const res = await forward(opts());
@@ -143,6 +142,26 @@ describe("forward", () => {
     // After MAX_RETRIES (3), the 4th 500 is returned as-is
     expect(res.status).toBe(500);
     expect(requests).toHaveLength(4);
+  });
+
+  test("returns actionable Anthropic transport diagnostics after fetch retries are exhausted", async () => {
+    clearRequests();
+    enqueueError(new Error("ECONNRESET"));
+    enqueueError(new Error("ECONNRESET"));
+    enqueueError(new Error("ECONNRESET"));
+    enqueueError(new Error("ECONNRESET"));
+
+    const res = await forward(
+      opts({
+        providerName: "Anthropic",
+      }),
+    );
+
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: { message: string; type: string } };
+    expect(body.error.type).toBe("connection_error");
+    expect(body.error.message).toContain("Anthropic connection error after retries were exhausted.");
+    expect(body.error.message).toContain("MTU");
   });
 });
 
