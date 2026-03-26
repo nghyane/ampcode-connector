@@ -2,15 +2,25 @@
  *
  *  The ChatGPT backend only accepts the Responses API format (input[] + instructions),
  *  but Amp CLI sends Chat Completions format (messages[]). This module transforms
- *  the request body before forwarding. */
+ *  the request body before forwarding.
+ *
+ *  Forward flow (5 steps):
+ *    1. AUTH    — acquire OAuth access token
+ *    2. EXPAND  — resolve previous_response_id → full input (codex-state)
+ *    3. PREPARE — transform body for Codex backend
+ *    4. FORWARD — send to Codex backend
+ *    5. PROCESS — format response + capture state for future turns */
 
 import { codex as config } from "../auth/configs.ts";
 import * as oauth from "../auth/oauth.ts";
 import * as store from "../auth/store.ts";
 import { CODEX_BASE_URL, codexHeaders, codexHeaderValues, codexPathMap } from "../constants.ts";
 import { fromBase64url } from "../utils/encoding.ts";
+import { logger } from "../utils/logger.ts";
+import { apiError } from "../utils/responses.ts";
 import type { Provider } from "./base.ts";
 import { bufferCodexResponse, transformCodexResponse } from "./codex-sse.ts";
+import * as state from "./codex-state.ts";
 import { denied, forward } from "./forward.ts";
 
 const DEFAULT_INSTRUCTIONS = "You are an expert coding assistant.";
@@ -25,21 +35,35 @@ export const provider: Provider = {
   accountCount: () => oauth.accountCount(config),
 
   async forward(sub, body, originalHeaders, rewrite, account = 0) {
+    // 1. AUTH
     const accessToken = await oauth.token(config, account);
     if (!accessToken) return denied("OpenAI Codex");
 
     const accountId = getAccountId(accessToken, account);
     const codexPath = codexPathMap[sub] ?? sub;
     const promptCacheKey = originalHeaders.get("x-amp-thread-id") ?? originalHeaders.get("x-session-id") ?? undefined;
-    const { body: codexBody, needsResponseTransform } = transformForCodex(body.forwardBody, promptCacheKey);
+
+    // 2. EXPAND — resolve previous_response_id before body transform
+    const expandedBody = expandPreviousResponse(body.forwardBody);
+    if (expandedBody === null) {
+      return apiError(400, "previous_response_id references an unknown or expired response");
+    }
+
+    // 3. PREPARE — transform body for Codex backend
+    const {
+      body: codexBody,
+      needsResponseTransform,
+      expandedInput,
+      instructions,
+    } = transformForCodex(expandedBody, promptCacheKey);
     const ampModel = body.ampModel ?? "gpt-5.2";
 
+    // 4. FORWARD
     const response = await forward({
       url: `${CODEX_BASE_URL}${codexPath}`,
       body: codexBody,
       streaming: body.stream,
       providerName: "OpenAI Codex",
-      // Skip generic rewrite when we need full response transform
       rewrite: needsResponseTransform ? undefined : rewrite,
       email: store.get("codex", account)?.email,
       headers: {
@@ -58,16 +82,90 @@ export const provider: Provider = {
       },
     });
 
-    // Transform Responses API SSE → Chat Completions SSE when original was messages[] format
-    if (needsResponseTransform && response.ok) {
-      if (!body.stream) {
-        return bufferCodexResponse(response, ampModel);
-      }
-      return transformCodexResponse(response, ampModel);
+    // 5. PROCESS — format response + capture state
+    if (!response.ok) return response;
+
+    // Chat Completions path — transform only, no state capture
+    if (needsResponseTransform) {
+      return body.stream ? transformCodexResponse(response, ampModel) : bufferCodexResponse(response, ampModel);
     }
-    return response;
+
+    // Responses API path — capture state + format
+    return body.stream
+      ? processStreamingResponse(response, expandedInput, instructions)
+      : processBufferedResponse(response, expandedInput, instructions);
   },
 };
+
+// ---------------------------------------------------------------------------
+// Step 2: Expand previous_response_id
+// ---------------------------------------------------------------------------
+
+/** Resolve previous_response_id into expanded input. Returns the (possibly modified) body string,
+ *  or null if the referenced response was not found. */
+function expandPreviousResponse(rawBody: string): string | null {
+  if (!rawBody) return rawBody;
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(rawBody) as Record<string, unknown>;
+  } catch {
+    return rawBody;
+  }
+
+  const prevId = parsed.previous_response_id as string | undefined;
+  if (!prevId) return rawBody;
+
+  const currentInput = Array.isArray(parsed.input) ? (parsed.input as unknown[]) : [];
+  const currentInstructions = (parsed.instructions as string) ?? null;
+  const expanded = state.expand(prevId, currentInput, currentInstructions);
+  if (!expanded) {
+    logger.warn(`previous_response_id "${prevId}" not found in state store`);
+    return null;
+  }
+
+  parsed.input = expanded.input;
+  if (expanded.instructions) parsed.instructions = expanded.instructions;
+  delete parsed.previous_response_id;
+
+  logger.debug(`Expanded previous_response_id "${prevId}", input items: ${expanded.input.length}`);
+  return JSON.stringify(parsed);
+}
+
+// ---------------------------------------------------------------------------
+// Step 5: Response processing with state capture
+// ---------------------------------------------------------------------------
+
+/** Streaming Responses API: pass through SSE + capture state from response.completed. */
+function processStreamingResponse(response: Response, expandedInput: unknown[], instructions: string | null): Response {
+  if (!response.body) return response;
+
+  const body = state.withStateCapture(response.body, expandedInput, instructions);
+  return new Response(body, { status: response.status, headers: response.headers });
+}
+
+/** Non-streaming Responses API: buffer SSE → JSON + capture state. */
+async function processBufferedResponse(
+  response: Response,
+  expandedInput: unknown[],
+  instructions: string | null,
+): Promise<Response> {
+  const fullResponse = await state.bufferResponseJson(response);
+  if (!fullResponse) {
+    return apiError(502, "No response received from Codex backend");
+  }
+
+  // Capture state for future previous_response_id lookups
+  if (fullResponse.id) {
+    const output = Array.isArray(fullResponse.output) ? (fullResponse.output as unknown[]) : [];
+    state.store(fullResponse.id as string, expandedInput, output, instructions);
+  }
+
+  return new Response(JSON.stringify(fullResponse), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Body transformation: Chat Completions → Responses API
@@ -97,17 +195,29 @@ function clampReasoningEffort(model: string, effort: string): string {
   return effort;
 }
 
-function transformForCodex(
-  rawBody: string,
-  promptCacheKey?: string,
-): { body: string; needsResponseTransform: boolean } {
-  if (!rawBody) return { body: rawBody, needsResponseTransform: false };
+interface TransformResult {
+  body: string;
+  needsResponseTransform: boolean;
+  /** The input[] sent to Codex — used for state capture. */
+  expandedInput: unknown[];
+  /** The instructions sent to Codex — used for state capture. */
+  instructions: string | null;
+}
+
+function transformForCodex(rawBody: string, promptCacheKey?: string): TransformResult {
+  const empty: TransformResult = {
+    body: rawBody,
+    needsResponseTransform: false,
+    expandedInput: [],
+    instructions: null,
+  };
+  if (!rawBody) return empty;
 
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(rawBody) as Record<string, unknown>;
   } catch {
-    return { body: rawBody, needsResponseTransform: false };
+    return empty;
   }
 
   // Convert Chat Completions messages[] → Responses API input[]
@@ -124,6 +234,10 @@ function transformForCodex(
   if (!parsed.instructions) {
     parsed.instructions = extractInstructionsFromInput(parsed) ?? DEFAULT_INSTRUCTIONS;
   }
+
+  // Snapshot input + instructions for state capture (before Codex-specific mutations)
+  const expandedInput = Array.isArray(parsed.input) ? [...(parsed.input as unknown[])] : [];
+  const instructions = (parsed.instructions as string) ?? null;
 
   // Codex backend requirements
   parsed.store = false;
@@ -206,7 +320,7 @@ function transformForCodex(
     }
   }
 
-  return { body: JSON.stringify(parsed), needsResponseTransform };
+  return { body: JSON.stringify(parsed), needsResponseTransform, expandedInput, instructions };
 }
 
 /** Convert Chat Completions messages[] → Responses API input[] + instructions. */
