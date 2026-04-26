@@ -37,13 +37,15 @@ function copyHeaders(source: Headers): Headers {
 }
 
 export async function forward(opts: ForwardOptions): Promise<Response> {
+  const requestBody = sanitizeForwardBody(opts);
+
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let response: Response;
     try {
       response = await fetch(opts.url, {
         method: "POST",
         headers: opts.headers,
-        body: opts.body,
+        body: requestBody,
       });
     } catch (err) {
       if (attempt < MAX_RETRIES) {
@@ -98,7 +100,11 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
     }
 
     const isSSE = contentType.includes("text/event-stream") || opts.streaming;
-    if (isSSE) return sse.proxy(response, opts.rewrite);
+    if (isSSE) {
+      const streamRewrite =
+        opts.providerName === "OpenAI Codex" ? createCodexResponseBackfill(opts.rewrite) : opts.rewrite;
+      return sse.proxy(response, streamRewrite);
+    }
 
     const headers = copyHeaders(response.headers);
 
@@ -116,6 +122,85 @@ export async function forward(opts: ForwardOptions): Promise<Response> {
 
 export function denied(providerName: string): Response {
   return apiError(401, `No ${providerName} OAuth token available. Run login first.`);
+}
+
+function sanitizeForwardBody(opts: ForwardOptions): string {
+  if (opts.providerName !== "OpenAI Codex" || !hasUnsupportedCodexRequestField(opts.body)) return opts.body;
+
+  try {
+    const parsed = JSON.parse(opts.body) as Record<string, unknown>;
+    delete parsed.prompt_cache_retention;
+    delete parsed.safety_identifier;
+    delete parsed.stream_options;
+    return JSON.stringify(parsed);
+  } catch {
+    return opts.body;
+  }
+}
+
+function hasUnsupportedCodexRequestField(body: string): boolean {
+  return (
+    body.includes("prompt_cache_retention") || body.includes("safety_identifier") || body.includes("stream_options")
+  );
+}
+
+function createCodexResponseBackfill(rewrite?: (data: string) => string): (data: string) => string {
+  const outputItemsByIndex = new Map<number, unknown>();
+  const outputItemsFallback: unknown[] = [];
+
+  return (data: string): string => {
+    const patched = backfillCodexCompletedOutput(data, outputItemsByIndex, outputItemsFallback);
+    return rewrite ? rewrite(patched) : patched;
+  };
+}
+
+function backfillCodexCompletedOutput(
+  data: string,
+  outputItemsByIndex: Map<number, unknown>,
+  outputItemsFallback: unknown[],
+): string {
+  if (data === "[DONE]") return data;
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(data) as Record<string, unknown>;
+  } catch {
+    return data;
+  }
+
+  const eventType = parsed.type as string | undefined;
+
+  if (eventType === "response.output_item.done") {
+    const item = parsed.item;
+    if (!item || typeof item !== "object") return data;
+
+    const outputIndex = parsed.output_index;
+    if (typeof outputIndex === "number") {
+      outputItemsByIndex.set(outputIndex, item);
+    } else {
+      outputItemsFallback.push(item);
+    }
+    return data;
+  }
+
+  if (eventType !== "response.completed") return data;
+
+  const response = parsed.response as Record<string, unknown> | undefined;
+  if (!response) return data;
+
+  const output = response.output;
+  const hasNoOutput = !Array.isArray(output) || output.length === 0;
+  const hasBackfillItems = outputItemsByIndex.size > 0 || outputItemsFallback.length > 0;
+  if (!hasNoOutput || !hasBackfillItems) return data;
+
+  response.output = [
+    ...Array.from(outputItemsByIndex.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([, item]) => item),
+    ...outputItemsFallback,
+  ];
+
+  return JSON.stringify(parsed);
 }
 
 function transportErrorResponse(providerName: string, err: unknown): Response {

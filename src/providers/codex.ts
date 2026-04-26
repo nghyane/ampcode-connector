@@ -274,6 +274,9 @@ function transformForCodex(rawBody: string, promptCacheKey?: string): TransformR
 
   // Remove fields the Codex backend doesn't accept
   delete parsed.reasoning_effort; // Chat Completions field; already mapped to reasoning.effort above
+  delete parsed.prompt_cache_retention;
+  delete parsed.safety_identifier;
+  delete parsed.stream_options; // Chat Completions streaming option; Codex Responses backend rejects it
   delete parsed.max_tokens;
   delete parsed.max_completion_tokens;
   delete parsed.max_output_tokens;
