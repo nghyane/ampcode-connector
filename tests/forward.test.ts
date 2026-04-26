@@ -163,6 +163,57 @@ describe("forward", () => {
     expect(body.error.message).toContain("Anthropic connection error after retries were exhausted.");
     expect(body.error.message).toContain("MTU");
   });
+
+  test("strips unsupported Codex request fields before forwarding", async () => {
+    clearRequests();
+    enqueue(200, '{"result":"ok"}');
+
+    const res = await forward(
+      opts({
+        providerName: "OpenAI Codex",
+        body: JSON.stringify({
+          model: "gpt-5.4",
+          prompt_cache_retention: "24h",
+          safety_identifier: "amp-user",
+          stream: true,
+          stream_options: { include_obfuscation: false },
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(JSON.parse(requests[0]!.body)).toEqual({ model: "gpt-5.4", stream: true });
+  });
+
+  test("backfills empty Codex streaming completed output from output_item.done events", async () => {
+    clearRequests();
+    enqueue(
+      200,
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"hello"}]}}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { "Content-Type": "text/event-stream" },
+    );
+
+    const res = await forward(
+      opts({
+        providerName: "OpenAI Codex",
+        streaming: true,
+        body: JSON.stringify({ model: "gpt-5.4", stream: true }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('"type":"response.completed"');
+    expect(text).toContain('"output":[{"type":"message","id":"msg_1"');
+    expect(text).toContain('"text":"hello"');
+  });
 });
 
 describe("denied", () => {
