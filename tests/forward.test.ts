@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { prepareBody as prepareAnthropicBody } from "../src/providers/anthropic.ts";
 import { bufferResponseJson } from "../src/providers/codex-state.ts";
 import { denied, type ForwardOptions, forward } from "../src/providers/forward.ts";
+import { parseBody } from "../src/server/body.ts";
 
 /** Minimal HTTP server that simulates provider responses. */
 const baseUrl = "http://mock.local";
@@ -282,6 +284,42 @@ describe("forward", () => {
     expect(text).toContain('"type":"reasoning","id":"rs_1"');
     expect(text).toContain('"type":"message","role":"assistant"');
     expect(text).toContain("goal");
+  });
+});
+
+describe("prepareAnthropicBody", () => {
+  test("removes thinking when tool_choice forces a specific tool", () => {
+    const body = parseBody(
+      JSON.stringify({
+        max_tokens: 4096,
+        messages: [{ role: "user", content: "create handoff context" }],
+        speed: "fast",
+        thinking: { type: "enabled", budget_tokens: 1024 },
+        tool_choice: { type: "tool", name: "create_handoff_context" },
+      }),
+      "/v1/messages",
+    );
+
+    const prepared = JSON.parse(prepareAnthropicBody(body)) as Record<string, unknown>;
+    expect(prepared.thinking).toBeUndefined();
+    expect(prepared.speed).toBeUndefined();
+    expect(prepared.tool_choice).toEqual({ type: "tool", name: "create_handoff_context" });
+  });
+
+  test("keeps thinking when tool_choice is auto", () => {
+    const thinking = { type: "enabled", budget_tokens: 1024 };
+    const body = parseBody(
+      JSON.stringify({
+        max_tokens: 4096,
+        messages: [{ role: "user", content: "normal request" }],
+        thinking,
+        tool_choice: { type: "auto" },
+      }),
+      "/v1/messages",
+    );
+
+    const prepared = JSON.parse(prepareAnthropicBody(body)) as Record<string, unknown>;
+    expect(prepared.thinking).toEqual(thinking);
   });
 });
 

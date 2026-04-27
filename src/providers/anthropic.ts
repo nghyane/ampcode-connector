@@ -89,7 +89,7 @@ function firstUserText(parsed: Record<string, unknown>): string {
 /** Prepare body: inject billing header + strip speed field.
  *  Always re-injects billing header because cch depends on per-request message content.
  *  Shallow-copies parsed to avoid mutating the shared ParsedBody.parsed reference. */
-function prepareBody(body: ParsedBody): string {
+export function prepareBody(body: ParsedBody): string {
   const raw = body.forwardBody;
 
   try {
@@ -101,17 +101,28 @@ function prepareBody(body: ParsedBody): string {
     const billingLine = `x-anthropic-billing-header: cc_version=${CLAUDE_CODE_VERSION}; cc_entrypoint=cli; cch=${cch};`;
 
     const { speed: _, system: existingSystem, ...rest } = original;
-
-    return JSON.stringify({
+    const prepared = {
       ...rest,
       system: injectBillingHeader(existingSystem, billingLine),
-    });
+    };
+
+    stripThinkingIfToolChoiceForced(prepared);
+
+    return JSON.stringify(prepared);
   } catch {
     return raw;
   }
 }
 
 /** Prepend the billing header into the system prompt, handling both array and string formats. */
+function stripThinkingIfToolChoiceForced(body: Record<string, unknown>): void {
+  const toolChoice = body.tool_choice as Record<string, unknown> | undefined;
+  const type = toolChoice?.type;
+  if (type === "any" || type === "tool") {
+    delete body.thinking;
+  }
+}
+
 function injectBillingHeader(system: unknown, billingLine: string): unknown {
   if (Array.isArray(system)) {
     const filtered = system.filter(
