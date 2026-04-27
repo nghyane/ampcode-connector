@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { bufferResponseJson } from "../src/providers/codex-state.ts";
 import { denied, type ForwardOptions, forward } from "../src/providers/forward.ts";
 
 /** Minimal HTTP server that simulates provider responses. */
@@ -243,6 +244,78 @@ describe("forward", () => {
     expect(text).toContain('"type":"reasoning","id":"rs_1"');
     expect(text).toContain('"type":"message","id":"msg_1"');
     expect(text).toContain("goal");
+  });
+
+  test("synthesizes missing Codex message output from output_text events", async () => {
+    clearRequests();
+    enqueue(
+      200,
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}',
+        "",
+        'data: {"type":"response.content_part.added","output_index":1,"content_index":0,"part":{"type":"output_text","text":""}}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"{\\"goal\\":"}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"\\"continue\\"}"}',
+        "",
+        'data: {"type":"response.output_text.done","output_index":1,"content_index":0,"text":"{\\"goal\\":\\"continue\\"}"}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[{"type":"reasoning","id":"rs_1","summary":[]}],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { "Content-Type": "text/event-stream" },
+    );
+
+    const res = await forward(
+      opts({
+        providerName: "OpenAI Codex",
+        streaming: true,
+        body: JSON.stringify({ model: "gpt-5.4", stream: true }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('"type":"reasoning","id":"rs_1"');
+    expect(text).toContain('"type":"message","role":"assistant"');
+    expect(text).toContain("goal");
+  });
+});
+
+describe("bufferResponseJson", () => {
+  test("synthesizes handoff message output while buffering Codex SSE", async () => {
+    const response = new Response(
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}',
+        "",
+        'data: {"type":"response.content_part.added","output_index":1,"content_index":0,"part":{"type":"output_text","text":""}}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"{\\"goal\\":"}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"\\"continue\\"}"}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[{"type":"reasoning","id":"rs_1","summary":[]}],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+
+    const fullResponse = await bufferResponseJson(response);
+    expect(fullResponse?.output).toEqual([
+      { type: "reasoning", id: "rs_1", summary: [] },
+      {
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: '{"goal":"continue"}', annotations: [] }],
+        status: "completed",
+      },
+    ]);
   });
 });
 

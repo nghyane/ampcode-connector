@@ -40,16 +40,20 @@ Some Codex streaming responses emit useful `response.output_item.done` events bu
 For `OpenAI Codex` SSE streams, `src/providers/forward.ts` now:
 
 1. Collects `response.output_item.done.item` values.
-2. Preserves `output_index` ordering when present.
-3. When `response.completed.response.output` is missing, empty, or lacks a message while a message was collected, fills or supplements it from the collected output items.
-4. Applies any existing response rewrite after the backfill.
+2. Synthesizes message outputs from `response.output_item.added`, `response.content_part.*`, and `response.output_text.*` events when a final message item is not emitted.
+3. Preserves `output_index` ordering when present.
+4. When `response.completed.response.output` is missing, empty, or lacks a message while a message was collected or synthesized, fills or supplements it from the collected output items.
+5. Applies any existing response rewrite after the backfill.
+
+For non-streaming Amp requests, the Codex backend still returns SSE internally because the provider forces upstream streaming. `src/providers/codex-state.ts` performs the same output reconstruction while buffering SSE into a single JSON Responses object. This path is required for Amp `/handoff`, which uses non-streaming OpenAI `responses.create(...)` with a JSON schema and expects a final `message` output containing `output_text`.
 
 ## Integration points
 
 - `src/providers/codex.ts` performs provider-specific request transformation for Codex.
-- `src/providers/forward.ts` performs final HTTP forwarding and SSE proxying.
-- `src/utils/streaming.ts` parses and re-emits SSE events used by the backfill path.
-- `tests/forward.test.ts` covers request stripping and streaming completed-output backfill.
+- `src/providers/forward.ts` performs final HTTP forwarding and streaming SSE proxy backfill.
+- `src/providers/codex-state.ts` buffers forced upstream SSE for non-streaming Responses callers and reconstructs missing message output for handoff-style responses.
+- `src/utils/streaming.ts` parses and re-emits SSE events used by the backfill paths.
+- `tests/forward.test.ts` covers request stripping, streaming completed-output backfill, and buffered handoff output reconstruction.
 
 ## Reference
 
