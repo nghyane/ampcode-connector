@@ -35,13 +35,13 @@ The Codex backend rejects that field with:
 
 ### Streaming output backfill
 
-Some Codex streaming responses emit useful `response.output_item.done` events but leave the final `response.completed.response.output` array empty. Clients that rely on the final completed event can briefly display thinking or text, then clear the UI when the empty final output arrives.
+Some Codex streaming responses emit useful `response.output_item.done` events but leave the final `response.completed.response.output` array empty or populated only with non-message items such as reasoning. Clients that rely on the final completed event can briefly display thinking or text, then clear the UI or report that no message output was found.
 
 For `OpenAI Codex` SSE streams, `src/providers/forward.ts` now:
 
 1. Collects `response.output_item.done.item` values.
 2. Preserves `output_index` ordering when present.
-3. When `response.completed.response.output` is missing or empty, fills it from the collected output items.
+3. When `response.completed.response.output` is missing, empty, or lacks a message while a message was collected, fills or supplements it from the collected output items.
 4. Applies any existing response rewrite after the backfill.
 
 ## Integration points

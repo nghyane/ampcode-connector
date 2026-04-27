@@ -214,6 +214,36 @@ describe("forward", () => {
     expect(text).toContain('"output":[{"type":"message","id":"msg_1"');
     expect(text).toContain('"text":"hello"');
   });
+
+  test("backfills missing Codex message output when completed output only has reasoning", async () => {
+    clearRequests();
+    enqueue(
+      200,
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"{\\"goal\\":\\"continue\\"}"}]}}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[{"type":"reasoning","id":"rs_1","summary":[]}],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { "Content-Type": "text/event-stream" },
+    );
+
+    const res = await forward(
+      opts({
+        providerName: "OpenAI Codex",
+        streaming: true,
+        body: JSON.stringify({ model: "gpt-5.4", stream: true }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('"type":"reasoning","id":"rs_1"');
+    expect(text).toContain('"type":"message","id":"msg_1"');
+    expect(text).toContain("goal");
+  });
 });
 
 describe("denied", () => {

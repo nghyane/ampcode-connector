@@ -189,18 +189,51 @@ function backfillCodexCompletedOutput(
   if (!response) return data;
 
   const output = response.output;
-  const hasNoOutput = !Array.isArray(output) || output.length === 0;
-  const hasBackfillItems = outputItemsByIndex.size > 0 || outputItemsFallback.length > 0;
-  if (!hasNoOutput || !hasBackfillItems) return data;
+  const existingOutput = Array.isArray(output) ? output : [];
+  const backfillItems = orderedBackfillItems(outputItemsByIndex, outputItemsFallback);
+  if (backfillItems.length === 0) return data;
 
-  response.output = [
+  const hasMessageOutput = existingOutput.some(isMessageOutput);
+  const hasBackfillMessage = backfillItems.some(isMessageOutput);
+  const shouldBackfillEmptyOutput = existingOutput.length === 0;
+  const shouldBackfillMissingMessage = !hasMessageOutput && hasBackfillMessage;
+  if (!shouldBackfillEmptyOutput && !shouldBackfillMissingMessage) return data;
+
+  response.output = shouldBackfillEmptyOutput ? backfillItems : mergeOutputItems(existingOutput, backfillItems);
+
+  return JSON.stringify(parsed);
+}
+
+function orderedBackfillItems(outputItemsByIndex: Map<number, unknown>, outputItemsFallback: unknown[]): unknown[] {
+  return [
     ...Array.from(outputItemsByIndex.entries())
       .sort(([a], [b]) => a - b)
       .map(([, item]) => item),
     ...outputItemsFallback,
   ];
+}
 
-  return JSON.stringify(parsed);
+function isMessageOutput(item: unknown): boolean {
+  return !!item && typeof item === "object" && (item as Record<string, unknown>).type === "message";
+}
+
+function mergeOutputItems(existingOutput: unknown[], backfillItems: unknown[]): unknown[] {
+  const seenIds = new Set(
+    existingOutput
+      .map((item) => (item && typeof item === "object" ? (item as Record<string, unknown>).id : undefined))
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  );
+
+  const merged = [...existingOutput];
+  for (const item of backfillItems) {
+    const id = item && typeof item === "object" ? (item as Record<string, unknown>).id : undefined;
+    if (typeof id === "string" && id.length > 0) {
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+    }
+    merged.push(item);
+  }
+  return merged;
 }
 
 function transportErrorResponse(providerName: string, err: unknown): Response {

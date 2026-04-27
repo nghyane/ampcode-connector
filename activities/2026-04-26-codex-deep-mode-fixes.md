@@ -14,7 +14,7 @@ After stripping that parameter locally, a second streaming issue appeared: think
 
 - Added Codex request sanitization for unsupported fields (`prompt_cache_retention`, `safety_identifier`, `stream_options`) in `src/providers/codex.ts`.
 - Added final forward-layer sanitization for `OpenAI Codex` requests in `src/providers/forward.ts`.
-- Added a Codex SSE backfill in `src/providers/forward.ts` that rebuilds empty `response.completed.response.output` from prior `response.output_item.done` events.
+- Added a Codex SSE backfill in `src/providers/forward.ts` that rebuilds empty or message-less `response.completed.response.output` from prior `response.output_item.done` events.
 - Added regression coverage in `tests/forward.test.ts`.
 - Documented behavior in `docs/codex-deep-mode-compatibility.md`.
 
