@@ -63,6 +63,12 @@ function clearRequests(): void {
   nextResponses.length = 0;
 }
 
+function responseCompletedFromSse(text: string): Record<string, unknown> {
+  const line = text.split("\n").find((entry) => entry.startsWith('data: {"type":"response.completed"'));
+  if (!line) throw new Error("response.completed event not found");
+  return JSON.parse(line.slice("data: ".length)) as Record<string, unknown>;
+}
+
 describe("forward", () => {
   test("returns successful JSON response", async () => {
     clearRequests();
@@ -285,6 +291,39 @@ describe("forward", () => {
     expect(text).toContain('"type":"message","role":"assistant"');
     expect(text).toContain("goal");
   });
+
+  test("compacts synthesized Codex streaming message content gaps", async () => {
+    clearRequests();
+    enqueue(
+      200,
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}',
+        "",
+        'data: {"type":"response.content_part.added","output_index":1,"content_index":1,"part":{"type":"output_text","text":""}}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":1,"delta":"hello"}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { "Content-Type": "text/event-stream" },
+    );
+
+    const res = await forward(
+      opts({
+        providerName: "OpenAI Codex",
+        streaming: true,
+        body: JSON.stringify({ model: "gpt-5.4", stream: true }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const completed = responseCompletedFromSse(await res.text());
+    const response = completed.response as { output: Array<{ content?: unknown[] }> };
+    expect(response.output[0]!.content).toEqual([{ type: "output_text", text: "hello", annotations: [] }]);
+  });
 });
 
 describe("prepareAnthropicBody", () => {
@@ -351,6 +390,35 @@ describe("bufferResponseJson", () => {
         type: "message",
         role: "assistant",
         content: [{ type: "output_text", text: '{"goal":"continue"}', annotations: [] }],
+        status: "completed",
+      },
+    ]);
+  });
+
+  test("compacts synthesized Codex buffered message content gaps", async () => {
+    const response = new Response(
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}',
+        "",
+        'data: {"type":"response.content_part.added","output_index":1,"content_index":1,"part":{"type":"output_text","text":""}}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":1,"delta":"hello"}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+
+    const fullResponse = await bufferResponseJson(response);
+    expect(fullResponse?.output).toEqual([
+      {
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "hello", annotations: [] }],
         status: "completed",
       },
     ]);

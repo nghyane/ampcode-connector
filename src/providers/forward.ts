@@ -301,8 +301,9 @@ function orderedBackfillItems(
 ): unknown[] {
   const indexedItems = new Map(outputItemsByIndex);
   for (const [index, draft] of messageDraftsByIndex) {
-    if (!indexedItems.has(index) && draft.content.some((part) => part.text.length > 0)) {
-      indexedItems.set(index, draft);
+    const compactedDraft = compactMessageDraft(draft);
+    if (!indexedItems.has(index) && compactedDraft.content.some((part) => part.text.length > 0)) {
+      indexedItems.set(index, compactedDraft);
     }
   }
 
@@ -312,6 +313,13 @@ function orderedBackfillItems(
       .map(([, item]) => item),
     ...outputItemsFallback,
   ];
+}
+
+function compactMessageDraft(draft: MessageOutputDraft): MessageOutputDraft {
+  return {
+    ...draft,
+    content: draft.content.filter((part) => part !== undefined),
+  };
 }
 
 function isMessageOutput(item: unknown): boolean {
