@@ -8,7 +8,9 @@ This compatibility layer keeps local Codex routing usable without changing Amp C
 
 ## Implemented behavior
 
-### Request sanitization
+### Request identity and sanitization
+
+The ChatGPT Codex backend gates some newer models by the Codex CLI client version. The connector detects the installed `codex --version` at startup and uses that value in the Codex CLI-style `User-Agent` header. If the CLI is unavailable, it falls back to `0.125.0`, the first known version that supports `gpt-5.5`. The connector no longer sends the legacy standalone `Version` header because current Codex CLI releases identify themselves through `User-Agent` and `originator`.
 
 Codex Responses API requests strip unsupported top-level request fields before forwarding upstream:
 

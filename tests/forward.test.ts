@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { codexHeaderValues, codexUserAgent } from "../src/constants.ts";
 import { prepareBody as prepareAnthropicBody } from "../src/providers/anthropic.ts";
 import { bufferResponseJson } from "../src/providers/codex-state.ts";
 import { denied, type ForwardOptions, forward } from "../src/providers/forward.ts";
@@ -323,6 +324,16 @@ describe("forward", () => {
     const completed = responseCompletedFromSse(await res.text());
     const response = completed.response as { output: Array<{ content?: unknown[] }> };
     expect(response.output[0]!.content).toEqual([{ type: "output_text", text: "hello", annotations: [] }]);
+  });
+});
+
+describe("Codex headers", () => {
+  test("builds a Codex CLI user agent with the supplied version", () => {
+    expect(codexUserAgent("0.125.0")).toMatch(/^codex_cli_rs\/0\.125\.0 \(.+\)$/);
+  });
+
+  test("does not send the removed legacy Version header value", () => {
+    expect("VERSION" in codexHeaderValues).toBe(false);
   });
 });
 
