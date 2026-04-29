@@ -1,5 +1,7 @@
 /** Single source of truth — no magic strings scattered across files. */
 
+import { execFileSync } from "node:child_process";
+
 export const CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_DAILY_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_DAILY_SANDBOX_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com";
@@ -18,13 +20,16 @@ export const codexHeaders = {
   CONVERSATION_ID: "conversation_id",
 } as const;
 
-export const CODEX_CLI_VERSION = "0.101.0";
+export const CODEX_CLI_VERSION = detectCodexCliVersion();
+
+export function codexUserAgent(version = CODEX_CLI_VERSION): string {
+  return `codex_cli_rs/${version} (${codexPlatformDescription()})`;
+}
 
 export const codexHeaderValues = {
   BETA_RESPONSES: "responses=experimental",
   ORIGINATOR: "codex_cli_rs",
-  VERSION: CODEX_CLI_VERSION,
-  USER_AGENT: `codex_cli_rs/${CODEX_CLI_VERSION} (${process.platform} ${process.arch})`,
+  USER_AGENT: codexUserAgent(),
 } as const;
 
 /** Map Amp CLI paths → ChatGPT backend paths.
@@ -51,6 +56,40 @@ export const claudeCodeBetas = [
 ] as const;
 
 export const filteredBetaFeatures = ["fast-mode-2026-02-01"] as const;
+
+function detectCodexCliVersion(): string {
+  const override = process.env.AMPCODE_CONNECTOR_CODEX_CLI_VERSION?.trim();
+  if (override) return override;
+
+  try {
+    const output = execFileSync("codex", ["--version"], { encoding: "utf8", timeout: 2000 }).trim();
+    const match = output.match(/(\d+\.\d+\.\d+)/);
+    if (match) return match[1]!;
+  } catch {
+    // Fall back to the first Codex CLI version known to support gpt-5.5.
+  }
+
+  return "0.125.0";
+}
+
+function codexPlatformDescription(): string {
+  if (process.platform === "darwin") {
+    const version = macOsVersion();
+    return version ? `Mac OS ${version}; ${process.arch}` : `Mac OS; ${process.arch}`;
+  }
+
+  if (process.platform === "win32") return `Windows; ${process.arch}`;
+  if (process.platform === "linux") return `Linux; ${process.arch}`;
+  return `${process.platform}; ${process.arch}`;
+}
+
+function macOsVersion(): string | null {
+  try {
+    return execFileSync("sw_vers", ["-productVersion"], { encoding: "utf8", timeout: 1000 }).trim();
+  } catch {
+    return null;
+  }
+}
 
 export const modelFieldPaths = [
   "model",
