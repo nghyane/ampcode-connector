@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { codexHeaderValues, codexUserAgent } from "../src/constants.ts";
+import { prepareBody as prepareAnthropicBody } from "../src/providers/anthropic.ts";
+import { bufferResponseJson } from "../src/providers/codex-state.ts";
 import { denied, type ForwardOptions, forward } from "../src/providers/forward.ts";
+import { parseBody } from "../src/server/body.ts";
 
 /** Minimal HTTP server that simulates provider responses. */
 const baseUrl = "http://mock.local";
@@ -58,6 +62,12 @@ function opts(overrides?: Partial<ForwardOptions>): ForwardOptions {
 function clearRequests(): void {
   requests.length = 0;
   nextResponses.length = 0;
+}
+
+function responseCompletedFromSse(text: string): Record<string, unknown> {
+  const line = text.split("\n").find((entry) => entry.startsWith('data: {"type":"response.completed"'));
+  if (!line) throw new Error("response.completed event not found");
+  return JSON.parse(line.slice("data: ".length)) as Record<string, unknown>;
 }
 
 describe("forward", () => {
@@ -213,6 +223,216 @@ describe("forward", () => {
     expect(text).toContain('"type":"response.completed"');
     expect(text).toContain('"output":[{"type":"message","id":"msg_1"');
     expect(text).toContain('"text":"hello"');
+  });
+
+  test("backfills missing Codex message output when completed output only has reasoning", async () => {
+    clearRequests();
+    enqueue(
+      200,
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"{\\"goal\\":\\"continue\\"}"}]}}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[{"type":"reasoning","id":"rs_1","summary":[]}],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { "Content-Type": "text/event-stream" },
+    );
+
+    const res = await forward(
+      opts({
+        providerName: "OpenAI Codex",
+        streaming: true,
+        body: JSON.stringify({ model: "gpt-5.4", stream: true }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('"type":"reasoning","id":"rs_1"');
+    expect(text).toContain('"type":"message","id":"msg_1"');
+    expect(text).toContain("goal");
+  });
+
+  test("synthesizes missing Codex message output from output_text events", async () => {
+    clearRequests();
+    enqueue(
+      200,
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}',
+        "",
+        'data: {"type":"response.content_part.added","output_index":1,"content_index":0,"part":{"type":"output_text","text":""}}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"{\\"goal\\":"}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"\\"continue\\"}"}',
+        "",
+        'data: {"type":"response.output_text.done","output_index":1,"content_index":0,"text":"{\\"goal\\":\\"continue\\"}"}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[{"type":"reasoning","id":"rs_1","summary":[]}],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { "Content-Type": "text/event-stream" },
+    );
+
+    const res = await forward(
+      opts({
+        providerName: "OpenAI Codex",
+        streaming: true,
+        body: JSON.stringify({ model: "gpt-5.4", stream: true }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('"type":"reasoning","id":"rs_1"');
+    expect(text).toContain('"type":"message","role":"assistant"');
+    expect(text).toContain("goal");
+  });
+
+  test("compacts synthesized Codex streaming message content gaps", async () => {
+    clearRequests();
+    enqueue(
+      200,
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}',
+        "",
+        'data: {"type":"response.content_part.added","output_index":1,"content_index":1,"part":{"type":"output_text","text":""}}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":1,"delta":"hello"}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { "Content-Type": "text/event-stream" },
+    );
+
+    const res = await forward(
+      opts({
+        providerName: "OpenAI Codex",
+        streaming: true,
+        body: JSON.stringify({ model: "gpt-5.4", stream: true }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const completed = responseCompletedFromSse(await res.text());
+    const response = completed.response as { output: Array<{ content?: unknown[] }> };
+    expect(response.output[0]!.content).toEqual([{ type: "output_text", text: "hello", annotations: [] }]);
+  });
+});
+
+describe("Codex headers", () => {
+  test("builds a Codex CLI user agent with the supplied version", () => {
+    expect(codexUserAgent("0.125.0")).toMatch(/^codex_cli_rs\/0\.125\.0 \(.+\)$/);
+  });
+
+  test("does not send the removed legacy Version header value", () => {
+    expect("VERSION" in codexHeaderValues).toBe(false);
+  });
+});
+
+describe("prepareAnthropicBody", () => {
+  test("removes thinking when tool_choice forces a specific tool", () => {
+    const body = parseBody(
+      JSON.stringify({
+        max_tokens: 4096,
+        messages: [{ role: "user", content: "create handoff context" }],
+        speed: "fast",
+        thinking: { type: "enabled", budget_tokens: 1024 },
+        tool_choice: { type: "tool", name: "create_handoff_context" },
+      }),
+      "/v1/messages",
+    );
+
+    const prepared = JSON.parse(prepareAnthropicBody(body)) as Record<string, unknown>;
+    expect(prepared.thinking).toBeUndefined();
+    expect(prepared.speed).toBeUndefined();
+    expect(prepared.tool_choice).toEqual({ type: "tool", name: "create_handoff_context" });
+  });
+
+  test("keeps thinking when tool_choice is auto", () => {
+    const thinking = { type: "enabled", budget_tokens: 1024 };
+    const body = parseBody(
+      JSON.stringify({
+        max_tokens: 4096,
+        messages: [{ role: "user", content: "normal request" }],
+        thinking,
+        tool_choice: { type: "auto" },
+      }),
+      "/v1/messages",
+    );
+
+    const prepared = JSON.parse(prepareAnthropicBody(body)) as Record<string, unknown>;
+    expect(prepared.thinking).toEqual(thinking);
+  });
+});
+
+describe("bufferResponseJson", () => {
+  test("synthesizes handoff message output while buffering Codex SSE", async () => {
+    const response = new Response(
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}',
+        "",
+        'data: {"type":"response.content_part.added","output_index":1,"content_index":0,"part":{"type":"output_text","text":""}}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"{\\"goal\\":"}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":0,"delta":"\\"continue\\"}"}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[{"type":"reasoning","id":"rs_1","summary":[]}],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+
+    const fullResponse = await bufferResponseJson(response);
+    expect(fullResponse?.output).toEqual([
+      { type: "reasoning", id: "rs_1", summary: [] },
+      {
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: '{"goal":"continue"}', annotations: [] }],
+        status: "completed",
+      },
+    ]);
+  });
+
+  test("compacts synthesized Codex buffered message content gaps", async () => {
+    const response = new Response(
+      [
+        'data: {"type":"response.created","response":{"id":"resp_1"}}',
+        "",
+        'data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}',
+        "",
+        'data: {"type":"response.content_part.added","output_index":1,"content_index":1,"part":{"type":"output_text","text":""}}',
+        "",
+        'data: {"type":"response.output_text.delta","output_index":1,"content_index":1,"delta":"hello"}',
+        "",
+        'data: {"type":"response.completed","response":{"id":"resp_1","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}',
+        "",
+      ].join("\n"),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+
+    const fullResponse = await bufferResponseJson(response);
+    expect(fullResponse?.output).toEqual([
+      {
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "hello", annotations: [] }],
+        status: "completed",
+      },
+    ]);
   });
 });
 

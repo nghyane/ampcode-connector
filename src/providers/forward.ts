@@ -144,12 +144,21 @@ function hasUnsupportedCodexRequestField(body: string): boolean {
   );
 }
 
+interface MessageOutputDraft {
+  id?: string;
+  type: "message";
+  role: "assistant";
+  content: Array<{ type: "output_text"; text: string; annotations: unknown[] }>;
+  status: "completed";
+}
+
 function createCodexResponseBackfill(rewrite?: (data: string) => string): (data: string) => string {
   const outputItemsByIndex = new Map<number, unknown>();
   const outputItemsFallback: unknown[] = [];
+  const messageDraftsByIndex = new Map<number, MessageOutputDraft>();
 
   return (data: string): string => {
-    const patched = backfillCodexCompletedOutput(data, outputItemsByIndex, outputItemsFallback);
+    const patched = backfillCodexCompletedOutput(data, outputItemsByIndex, outputItemsFallback, messageDraftsByIndex);
     return rewrite ? rewrite(patched) : patched;
   };
 }
@@ -158,6 +167,7 @@ function backfillCodexCompletedOutput(
   data: string,
   outputItemsByIndex: Map<number, unknown>,
   outputItemsFallback: unknown[],
+  messageDraftsByIndex: Map<number, MessageOutputDraft>,
 ): string {
   if (data === "[DONE]") return data;
 
@@ -169,6 +179,8 @@ function backfillCodexCompletedOutput(
   }
 
   const eventType = parsed.type as string | undefined;
+
+  collectCodexMessageDraft(parsed, messageDraftsByIndex);
 
   if (eventType === "response.output_item.done") {
     const item = parsed.item;
@@ -189,18 +201,148 @@ function backfillCodexCompletedOutput(
   if (!response) return data;
 
   const output = response.output;
-  const hasNoOutput = !Array.isArray(output) || output.length === 0;
-  const hasBackfillItems = outputItemsByIndex.size > 0 || outputItemsFallback.length > 0;
-  if (!hasNoOutput || !hasBackfillItems) return data;
+  const existingOutput = Array.isArray(output) ? output : [];
+  const backfillItems = orderedBackfillItems(outputItemsByIndex, outputItemsFallback, messageDraftsByIndex);
+  if (backfillItems.length === 0) return data;
 
-  response.output = [
-    ...Array.from(outputItemsByIndex.entries())
+  const hasMessageOutput = existingOutput.some(isMessageOutput);
+  const hasBackfillMessage = backfillItems.some(isMessageOutput);
+  const shouldBackfillEmptyOutput = existingOutput.length === 0;
+  const shouldBackfillMissingMessage = !hasMessageOutput && hasBackfillMessage;
+  if (!shouldBackfillEmptyOutput && !shouldBackfillMissingMessage) return data;
+
+  response.output = shouldBackfillEmptyOutput ? backfillItems : mergeOutputItems(existingOutput, backfillItems);
+
+  return JSON.stringify(parsed);
+}
+
+function collectCodexMessageDraft(
+  parsed: Record<string, unknown>,
+  messageDraftsByIndex: Map<number, MessageOutputDraft>,
+): void {
+  const outputIndex = parsed.output_index;
+  if (typeof outputIndex !== "number") return;
+
+  const eventType = parsed.type as string | undefined;
+
+  if (eventType === "response.output_item.added") {
+    const item = parsed.item as Record<string, unknown> | undefined;
+    if (item?.type === "message") {
+      messageDraftsByIndex.set(outputIndex, {
+        id: typeof item.id === "string" ? item.id : undefined,
+        type: "message",
+        role: "assistant",
+        content: [],
+        status: "completed",
+      });
+    }
+    return;
+  }
+
+  if (eventType === "response.content_part.added" || eventType === "response.content_part.done") {
+    const part = parsed.part as Record<string, unknown> | undefined;
+    if (part?.type !== "output_text") return;
+    setMessageDraftText(messageDraftsByIndex, outputIndex, parsed.content_index, part.text);
+    return;
+  }
+
+  if (eventType === "response.output_text.delta") {
+    appendMessageDraftText(messageDraftsByIndex, outputIndex, parsed.content_index, parsed.delta);
+    return;
+  }
+
+  if (eventType === "response.output_text.done") {
+    setMessageDraftText(messageDraftsByIndex, outputIndex, parsed.content_index, parsed.text);
+  }
+}
+
+function appendMessageDraftText(
+  messageDraftsByIndex: Map<number, MessageOutputDraft>,
+  outputIndex: number,
+  contentIndex: unknown,
+  delta: unknown,
+): void {
+  if (typeof delta !== "string" || delta.length === 0) return;
+  const part = ensureMessageDraftContent(messageDraftsByIndex, outputIndex, contentIndex);
+  part.text += delta;
+}
+
+function setMessageDraftText(
+  messageDraftsByIndex: Map<number, MessageOutputDraft>,
+  outputIndex: number,
+  contentIndex: unknown,
+  text: unknown,
+): void {
+  if (typeof text !== "string") return;
+  const part = ensureMessageDraftContent(messageDraftsByIndex, outputIndex, contentIndex);
+  part.text = text;
+}
+
+function ensureMessageDraftContent(
+  messageDraftsByIndex: Map<number, MessageOutputDraft>,
+  outputIndex: number,
+  contentIndex: unknown,
+): { type: "output_text"; text: string; annotations: unknown[] } {
+  let draft = messageDraftsByIndex.get(outputIndex);
+  if (!draft) {
+    draft = { type: "message", role: "assistant", content: [], status: "completed" };
+    messageDraftsByIndex.set(outputIndex, draft);
+  }
+
+  const index = typeof contentIndex === "number" ? contentIndex : 0;
+  draft.content[index] ??= { type: "output_text", text: "", annotations: [] };
+  return draft.content[index]!;
+}
+
+function orderedBackfillItems(
+  outputItemsByIndex: Map<number, unknown>,
+  outputItemsFallback: unknown[],
+  messageDraftsByIndex: Map<number, MessageOutputDraft>,
+): unknown[] {
+  const indexedItems = new Map(outputItemsByIndex);
+  for (const [index, draft] of messageDraftsByIndex) {
+    const compactedDraft = compactMessageDraft(draft);
+    if (!indexedItems.has(index) && compactedDraft.content.some((part) => part.text.length > 0)) {
+      indexedItems.set(index, compactedDraft);
+    }
+  }
+
+  return [
+    ...Array.from(indexedItems.entries())
       .sort(([a], [b]) => a - b)
       .map(([, item]) => item),
     ...outputItemsFallback,
   ];
+}
 
-  return JSON.stringify(parsed);
+function compactMessageDraft(draft: MessageOutputDraft): MessageOutputDraft {
+  return {
+    ...draft,
+    content: draft.content.filter((part) => part !== undefined),
+  };
+}
+
+function isMessageOutput(item: unknown): boolean {
+  return !!item && typeof item === "object" && (item as Record<string, unknown>).type === "message";
+}
+
+function mergeOutputItems(existingOutput: unknown[], backfillItems: unknown[]): unknown[] {
+  const seenIds = new Set(
+    existingOutput
+      .map((item) => (item && typeof item === "object" ? (item as Record<string, unknown>).id : undefined))
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  );
+
+  const merged = [...existingOutput];
+  for (const item of backfillItems) {
+    const id = item && typeof item === "object" ? (item as Record<string, unknown>).id : undefined;
+    if (typeof id === "string" && id.length > 0) {
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+    }
+    merged.push(item);
+  }
+  return merged;
 }
 
 function transportErrorResponse(providerName: string, err: unknown): Response {

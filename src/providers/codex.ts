@@ -74,7 +74,6 @@ export const provider: Provider = {
         [codexHeaders.BETA]: codexHeaderValues.BETA_RESPONSES,
         [codexHeaders.ORIGINATOR]: codexHeaderValues.ORIGINATOR,
         "User-Agent": codexHeaderValues.USER_AGENT,
-        Version: codexHeaderValues.VERSION,
         ...(accountId ? { [codexHeaders.ACCOUNT_ID]: accountId } : {}),
         ...(promptCacheKey
           ? { [codexHeaders.SESSION_ID]: promptCacheKey, [codexHeaders.CONVERSATION_ID]: promptCacheKey }
